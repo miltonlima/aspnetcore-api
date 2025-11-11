@@ -18,7 +18,7 @@ builder.Services.AddSwaggerGen();
 var allowedOrigins = builder.Configuration.GetSection("Frontend:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 if (allowedOrigins.Length == 0)
 {
-    allowedOrigins = new[] { "http://localhost:5173" };
+    allowedOrigins = new[] { "http://localhost:5173", "https://localhost:5173" };
 }
 
 builder.Services.AddCors(options =>
@@ -42,7 +42,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+var httpsPort = builder.Configuration.GetValue<int?>("ASPNETCORE_HTTPS_PORT");
+if (httpsPort.HasValue)
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseCors("AllowFrontend");
 
