@@ -82,6 +82,29 @@ app.MapPost("/api/registrations", async Task<IResult> (RegistrationRequest reque
 .Produces(StatusCodes.Status400BadRequest)
 .Produces(StatusCodes.Status409Conflict);
 
+app.MapPut("/api/registrations/{id:long}", async Task<IResult> (long id, UpdateRegistrationRequest request, RegistrationService service, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var updated = await service.UpdateAsync(id, request, cancellationToken);
+        return updated is null
+            ? Results.NotFound()
+            : Results.Ok(RegistrationResponse.FromEntity(updated));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (MySqlException ex) when (ex.Number == 1062)
+    {
+        return Results.Conflict(new { message = "CPF ou e-mail já cadastrado." });
+    }
+})
+.WithName("UpdateRegistration")
+.Produces<RegistrationResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status400BadRequest)
+.Produces(StatusCodes.Status404NotFound);
+
 var summaries = new[]
 {
     "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"

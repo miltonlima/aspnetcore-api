@@ -7,5 +7,6 @@ public class PersonRegistration
     public DateOnly BirthDate { get; set; }
     public string Cpf { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
+    public string? Description { get; set; }
     public DateTime CreatedAt { get; set; }
 }
