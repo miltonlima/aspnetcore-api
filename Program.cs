@@ -50,6 +50,9 @@ if (httpsPort.HasValue)
 
 app.UseCors("AllowFrontend");
 
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.MapGet("/", () => Results.Redirect("/swagger", permanent: false));
 
 app.MapGet("/api/registrations", async (RegistrationService service, CancellationToken cancellationToken) =>
@@ -136,6 +139,17 @@ app.MapGet("/api/dashboard", () => Results.Ok(new { Message = "Bem-vindo ao seu 
    .WithName("GetDashboardMessage")
    .Produces<object>(StatusCodes.Status200OK);
 
+app.MapGet("/api/profile", () =>
+{
+    var userProfile = new
+    {
+        Name = "Usuário de Exemplo",
+        Email = "usuario@exemplo.com",
+        JoinDate = "2025-01-15"
+    };
+    return Results.Ok(userProfile);
+}).WithName("GetUserProfile").Produces<object>(StatusCodes.Status200OK);
+
 var summaries = new[]
 {
     "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
@@ -154,6 +168,8 @@ app.MapGet("/weatherforecast", () =>
     return forecast;
 })
 .WithName("GetWeatherForecast");
+
+app.MapFallbackToFile("index.html");
 
 app.Run();
 
