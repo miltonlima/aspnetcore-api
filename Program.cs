@@ -132,6 +132,10 @@ app.MapDelete("/api/registrations/{id:long}", async Task<IResult> (long id, Canc
 .Produces(Microsoft.AspNetCore.Http.StatusCodes.Status400BadRequest)
 .Produces(Microsoft.AspNetCore.Http.StatusCodes.Status404NotFound);
 
+app.MapGet("/api/dashboard", () => Results.Ok(new { Message = "Bem-vindo ao seu novo painel!" }))
+   .WithName("GetDashboardMessage")
+   .Produces<object>(StatusCodes.Status200OK);
+
 var summaries = new[]
 {
     "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
