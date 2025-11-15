@@ -105,6 +105,33 @@ app.MapPut("/api/registrations/{id:long}", async Task<IResult> (long id, UpdateR
 .Produces(StatusCodes.Status400BadRequest)
 .Produces(StatusCodes.Status404NotFound);
 
+app.MapDelete("/api/registrations/{id:long}", async Task<IResult> (long id, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+        await using var conn = new MySqlConnection(connectionString);
+        await conn.OpenAsync(cancellationToken);
+
+    await using var cmd = conn.CreateCommand();
+    // use the actual table name present in the database
+    cmd.CommandText = "DELETE FROM person_registrations WHERE id = @id";
+        cmd.Parameters.AddWithValue("@id", id);
+
+        var affected = await cmd.ExecuteNonQueryAsync(cancellationToken);
+        return affected > 0 ? Results.NoContent() : Results.NotFound();
+    }
+    catch (MySqlException ex)
+    {
+        // log/return generic bad request for DB issues
+        return Results.BadRequest(new { message = ex.Message });
+    }
+})
+.WithName("DeleteRegistration")
+.Produces(Microsoft.AspNetCore.Http.StatusCodes.Status204NoContent)
+.Produces(Microsoft.AspNetCore.Http.StatusCodes.Status400BadRequest)
+.Produces(Microsoft.AspNetCore.Http.StatusCodes.Status404NotFound);
+
 var summaries = new[]
 {
     "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
