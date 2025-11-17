@@ -35,3 +35,12 @@ C:\temp\aspnetcore-api\bin\Debug\net9.0\Swashbuckle.AspNetCore.Swagger.dll
 C:\temp\aspnetcore-api\bin\Debug\net9.0\Swashbuckle.AspNetCore.SwaggerGen.dll
 C:\temp\aspnetcore-api\bin\Debug\net9.0\Swashbuckle.AspNetCore.SwaggerUI.dll
 C:\temp\aspnetcore-api\bin\Debug\net9.0\MySqlConnector.dll
+C:\temp\aspnetcore-api\bin\Debug\net9.0\BCrypt.Net-Next.dll
+C:\temp\aspnetcore-api\bin\Debug\net9.0\Microsoft.AspNetCore.Authentication.JwtBearer.dll
+C:\temp\aspnetcore-api\bin\Debug\net9.0\Microsoft.IdentityModel.Abstractions.dll
+C:\temp\aspnetcore-api\bin\Debug\net9.0\Microsoft.IdentityModel.JsonWebTokens.dll
+C:\temp\aspnetcore-api\bin\Debug\net9.0\Microsoft.IdentityModel.Logging.dll
+C:\temp\aspnetcore-api\bin\Debug\net9.0\Microsoft.IdentityModel.Protocols.dll
+C:\temp\aspnetcore-api\bin\Debug\net9.0\Microsoft.IdentityModel.Protocols.OpenIdConnect.dll
+C:\temp\aspnetcore-api\bin\Debug\net9.0\Microsoft.IdentityModel.Tokens.dll
+C:\temp\aspnetcore-api\bin\Debug\net9.0\System.IdentityModel.Tokens.Jwt.dll

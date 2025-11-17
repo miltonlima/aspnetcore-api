@@ -1,13 +1,11 @@
+using System.Text;
 using aspnetcore_api.Contracts;
+using aspnetcore_api.Models;
 using aspnetcore_api.Services;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 using MySqlConnector;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+using BC = BCrypt.Net.BCrypt;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,6 +30,29 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddScoped<RegistrationService>();
+builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<TokenService>();
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+        ValidAudience = builder.Configuration["Jwt:Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+    };
+});
+
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
@@ -50,10 +71,45 @@ if (httpsPort.HasValue)
 
 app.UseCors("AllowFrontend");
 
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapGet("/", () => Results.Redirect("/swagger", permanent: false));
+
+app.MapPost("/api/auth/register", async (AuthRequest request, AuthService authService, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var user = await authService.CreateUserAsync(request.Email, request.Password, cancellationToken);
+        return Results.Created($"/api/users/{user.Id}", new AuthResponse(user.Email, null));
+    }
+    catch (MySqlException ex) when (ex.Number == 1062)
+    {
+        return Results.Conflict(new { message = "E-mail já cadastrado." });
+    }
+})
+.WithName("RegisterUser")
+.Produces<AuthResponse>(StatusCodes.Status201Created)
+.Produces(StatusCodes.Status409Conflict);
+
+app.MapPost("/api/auth/login", async (AuthRequest request, AuthService authService, TokenService tokenService, CancellationToken cancellationToken) =>
+{
+    var user = await authService.GetUserByEmailAsync(request.Email, cancellationToken);
+
+    if (user is null || !BC.Verify(request.Password, user.PasswordHash))
+    {
+        return Results.Unauthorized();
+    }
+
+    var token = tokenService.GenerateToken(user);
+    return Results.Ok(new AuthResponse(user.Email, token));
+})
+.WithName("LoginUser")
+.Produces<AuthResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status401Unauthorized);
 
 app.MapGet("/api/registrations", async (RegistrationService service, CancellationToken cancellationToken) =>
 {
@@ -62,6 +118,7 @@ app.MapGet("/api/registrations", async (RegistrationService service, Cancellatio
     return Results.Ok(responses);
 })
 .WithName("ListRegistrations")
+.RequireAuthorization()
 .Produces<IEnumerable<RegistrationResponse>>(StatusCodes.Status200OK);
 
 app.MapPost("/api/registrations", async Task<IResult> (RegistrationRequest request, RegistrationService service, CancellationToken cancellationToken) =>
@@ -81,6 +138,7 @@ app.MapPost("/api/registrations", async Task<IResult> (RegistrationRequest reque
     }
 })
 .WithName("CreateRegistration")
+.RequireAuthorization()
 .Produces<RegistrationResponse>(StatusCodes.Status201Created)
 .Produces(StatusCodes.Status400BadRequest)
 .Produces(StatusCodes.Status409Conflict);
@@ -104,6 +162,7 @@ app.MapPut("/api/registrations/{id:long}", async Task<IResult> (long id, UpdateR
     }
 })
 .WithName("UpdateRegistration")
+.RequireAuthorization()
 .Produces<RegistrationResponse>(StatusCodes.Status200OK)
 .Produces(StatusCodes.Status400BadRequest)
 .Produces(StatusCodes.Status404NotFound);
@@ -131,12 +190,14 @@ app.MapDelete("/api/registrations/{id:long}", async Task<IResult> (long id, Canc
     }
 })
 .WithName("DeleteRegistration")
+.RequireAuthorization()
 .Produces(Microsoft.AspNetCore.Http.StatusCodes.Status204NoContent)
 .Produces(Microsoft.AspNetCore.Http.StatusCodes.Status400BadRequest)
 .Produces(Microsoft.AspNetCore.Http.StatusCodes.Status404NotFound);
 
 app.MapGet("/api/dashboard", () => Results.Ok(new { Message = "Bem-vindo ao seu novo painel!" }))
    .WithName("GetDashboardMessage")
+   .RequireAuthorization()
    .Produces<object>(StatusCodes.Status200OK);
 
 app.MapGet("/api/profile", () =>
@@ -148,7 +209,9 @@ app.MapGet("/api/profile", () =>
         JoinDate = "2025-01-15"
     };
     return Results.Ok(userProfile);
-}).WithName("GetUserProfile").Produces<object>(StatusCodes.Status200OK);
+}).WithName("GetUserProfile")
+.RequireAuthorization()
+.Produces<object>(StatusCodes.Status200OK);
 
 var summaries = new[]
 {
