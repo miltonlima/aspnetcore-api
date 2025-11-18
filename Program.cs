@@ -86,32 +86,15 @@ app.UseStaticFiles();
 
 app.MapGet("/", () => Results.Redirect("/swagger", permanent: false));
 
-app.MapPost("/api/users", async (UserRequest request, UserService userService) =>
+app.MapPost("/api/login", async (LoginRequest request, RegistrationService registrationService, TokenService tokenService, CancellationToken cancellationToken) =>
 {
     if (request.Username == null || request.Password == null)
     {
         return Results.BadRequest("Username and password are required.");
     }
-    try
-    {
-        var user = await userService.CreateUserAsync(request.Username, request.Password);
-        return Results.Created($"/api/users/{user.Id}", user);
-    }
-    catch (MySqlException ex) when (ex.Number == 1062)
-    {
-        return Results.Conflict(new { message = "Username already exists." });
-    }
-});
+    var user = await registrationService.GetUserByEmailAsync(request.Username, cancellationToken);
 
-app.MapPost("/api/login", async (LoginRequest request, UserService userService, TokenService tokenService) =>
-{
-    if (request.Username == null || request.Password == null)
-    {
-        return Results.BadRequest("Username and password are required.");
-    }
-    var user = await userService.GetUserByUsernameAsync(request.Username);
-
-    if (user is null || user.PasswordHash == null || !userService.VerifyPassword(request.Password, user.PasswordHash))
+    if (user is null || user.Password == null || !registrationService.VerifyPassword(request.Password, user.Password))
     {
         return Results.Unauthorized();
     }
@@ -147,7 +130,6 @@ app.MapPost("/api/registrations", async Task<IResult> (RegistrationRequest reque
     }
 })
 .WithName("CreateRegistration")
-.RequireAuthorization()
 .Produces<RegistrationResponse>(StatusCodes.Status201Created)
 .Produces(StatusCodes.Status400BadRequest)
 .Produces(StatusCodes.Status409Conflict);

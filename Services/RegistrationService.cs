@@ -19,6 +19,7 @@ public class RegistrationService
     public async Task<PersonRegistration> CreateAsync(RegistrationRequest request, CancellationToken cancellationToken)
     {
         var person = ValidateAndMap(request);
+        person.Password = BCrypt.Net.BCrypt.HashPassword(request.Password);
 
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -27,12 +28,13 @@ public class RegistrationService
 
         await using (var command = connection.CreateCommand())
         {
-            command.CommandText = @"INSERT INTO person_registrations (name, birth_date, cpf, email, description, created_at)
-                                    VALUES (@name, @birthDate, @cpf, @email, @description, @createdAt);";
+            command.CommandText = @"INSERT INTO person_registrations (name, birth_date, cpf, email, password, description, created_at)
+                                    VALUES (@name, @birthDate, @cpf, @email, @password, @description, @createdAt);";
             command.Parameters.AddWithValue("@name", person.Name);
             command.Parameters.AddWithValue("@birthDate", person.BirthDate.ToDateTime(TimeOnly.MinValue));
             command.Parameters.AddWithValue("@cpf", person.Cpf);
             command.Parameters.AddWithValue("@email", person.Email);
+            command.Parameters.AddWithValue("@password", person.Password);
             command.Parameters.AddWithValue("@description", person.Description is null ? DBNull.Value : person.Description);
             command.Parameters.AddWithValue("@createdAt", person.CreatedAt);
 
@@ -92,6 +94,11 @@ public class RegistrationService
         if (!IsValidEmail(request.Email))
         {
             throw new ArgumentException("E-mail inválido.", nameof(request.Email));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 8)
+        {
+            throw new ArgumentException("Senha deve conter no mínimo 8 caracteres.", nameof(request.Password));
         }
 
         var description = string.IsNullOrWhiteSpace(request.Description)
@@ -290,6 +297,7 @@ public class RegistrationService
                 birth_date DATE NOT NULL,
                 cpf CHAR(11) NOT NULL,
                 email VARCHAR(180) NOT NULL,
+                password VARCHAR(255) NOT NULL,
                 description TEXT NULL,
                 created_at DATETIME NOT NULL,
                 UNIQUE KEY uq_person_registrations_cpf (cpf),
@@ -311,5 +319,44 @@ public class RegistrationService
         Email = reader.GetString(4),
         Description = reader.IsDBNull(5) ? null : reader.GetString(5),
         CreatedAt = reader.GetDateTime(6)
+    };
+
+    public async Task<PersonRegistration?> GetUserByEmailAsync(string email, CancellationToken cancellationToken)
+    {
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await EnsureTableAsync(connection, cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = @"SELECT id, name, birth_date, cpf, email, password, description, created_at
+                                FROM person_registrations
+                                WHERE email = @email;";
+        command.Parameters.AddWithValue("@email", email);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return MapReaderWithPassword(reader);
+        }
+
+        return null;
+    }
+
+    public bool VerifyPassword(string password, string hash)
+    {
+        return BCrypt.Net.BCrypt.Verify(password, hash);
+    }
+
+    private static PersonRegistration MapReaderWithPassword(MySqlDataReader reader) => new()
+    {
+        Id = reader.GetInt64(0),
+        Name = reader.GetString(1),
+        BirthDate = DateOnly.FromDateTime(reader.GetDateTime(2)),
+        Cpf = reader.GetString(3),
+        Email = reader.GetString(4),
+        Password = reader.GetString(5),
+        Description = reader.IsDBNull(6) ? null : reader.GetString(6),
+        CreatedAt = reader.GetDateTime(7)
     };
 }

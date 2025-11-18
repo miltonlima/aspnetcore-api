@@ -1,0 +1,1 @@
+ALTER TABLE person_registrations ADD COLUMN password VARCHAR(255) NOT NULL;
