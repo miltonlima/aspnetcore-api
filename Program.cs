@@ -5,7 +5,6 @@ using aspnetcore_api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using MySqlConnector;
-using BC = BCrypt.Net.BCrypt;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,8 +28,11 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.AddScoped<MySqlConnection>(_ => 
+    new MySqlConnection(builder.Configuration.GetConnectionString("DefaultConnection")));
+
 builder.Services.AddScoped<RegistrationService>();
-builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<TokenService>();
 
 builder.Services.AddAuthentication(options =>
@@ -40,6 +42,11 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
+    var jwtKey = builder.Configuration["Jwt:Key"];
+    if (string.IsNullOrEmpty(jwtKey))
+    {
+        throw new InvalidOperationException("Jwt:Key configuration is missing.");
+    }
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
@@ -48,7 +55,7 @@ builder.Services.AddAuthentication(options =>
         ValidateIssuerSigningKey = true,
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
     };
 });
 
@@ -79,37 +86,39 @@ app.UseStaticFiles();
 
 app.MapGet("/", () => Results.Redirect("/swagger", permanent: false));
 
-app.MapPost("/api/auth/register", async (AuthRequest request, AuthService authService, CancellationToken cancellationToken) =>
+app.MapPost("/api/users", async (UserRequest request, UserService userService) =>
 {
+    if (request.Username == null || request.Password == null)
+    {
+        return Results.BadRequest("Username and password are required.");
+    }
     try
     {
-        var user = await authService.CreateUserAsync(request.Email, request.Password, cancellationToken);
-        return Results.Created($"/api/users/{user.Id}", new AuthResponse(user.Email, null));
+        var user = await userService.CreateUserAsync(request.Username, request.Password);
+        return Results.Created($"/api/users/{user.Id}", user);
     }
     catch (MySqlException ex) when (ex.Number == 1062)
     {
-        return Results.Conflict(new { message = "E-mail já cadastrado." });
+        return Results.Conflict(new { message = "Username already exists." });
     }
-})
-.WithName("RegisterUser")
-.Produces<AuthResponse>(StatusCodes.Status201Created)
-.Produces(StatusCodes.Status409Conflict);
+});
 
-app.MapPost("/api/auth/login", async (AuthRequest request, AuthService authService, TokenService tokenService, CancellationToken cancellationToken) =>
+app.MapPost("/api/login", async (LoginRequest request, UserService userService, TokenService tokenService) =>
 {
-    var user = await authService.GetUserByEmailAsync(request.Email, cancellationToken);
+    if (request.Username == null || request.Password == null)
+    {
+        return Results.BadRequest("Username and password are required.");
+    }
+    var user = await userService.GetUserByUsernameAsync(request.Username);
 
-    if (user is null || !BC.Verify(request.Password, user.PasswordHash))
+    if (user is null || user.PasswordHash == null || !userService.VerifyPassword(request.Password, user.PasswordHash))
     {
         return Results.Unauthorized();
     }
 
     var token = tokenService.GenerateToken(user);
-    return Results.Ok(new AuthResponse(user.Email, token));
-})
-.WithName("LoginUser")
-.Produces<AuthResponse>(StatusCodes.Status200OK)
-.Produces(StatusCodes.Status401Unauthorized);
+    return Results.Ok(new LoginResponse { Token = token });
+});
 
 app.MapGet("/api/registrations", async (RegistrationService service, CancellationToken cancellationToken) =>
 {

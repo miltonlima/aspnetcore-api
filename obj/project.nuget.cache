@@ -1,10 +1,11 @@
 {
   "version": 2,
-  "dgSpecHash": "OjhZFZqpLc0=",
+  "dgSpecHash": "APHATnnVJ+Q=",
   "success": true,
   "projectFilePath": "C:\\temp\\aspnetcore-api\\aspnetcore-api.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\milto\\.nuget\\packages\\bcrypt.net-next\\4.0.3\\bcrypt.net-next.4.0.3.nupkg.sha512",
+    "C:\\Users\\milto\\.nuget\\packages\\dapper\\2.1.66\\dapper.2.1.66.nupkg.sha512",
     "C:\\Users\\milto\\.nuget\\packages\\microsoft.aspnetcore.authentication.jwtbearer\\9.0.0-preview.6.24328.4\\microsoft.aspnetcore.authentication.jwtbearer.9.0.0-preview.6.24328.4.nupkg.sha512",
     "C:\\Users\\milto\\.nuget\\packages\\microsoft.aspnetcore.openapi\\9.0.10\\microsoft.aspnetcore.openapi.9.0.10.nupkg.sha512",
     "C:\\Users\\milto\\.nuget\\packages\\microsoft.extensions.apidescription.server\\6.0.5\\microsoft.extensions.apidescription.server.6.0.5.nupkg.sha512",
