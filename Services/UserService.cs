@@ -24,31 +24,31 @@ namespace aspnetcore_api.Services
             command.CommandText = @"
                 CREATE TABLE IF NOT EXISTS Users (
                     Id INT AUTO_INCREMENT PRIMARY KEY,
-                    Username VARCHAR(255) NOT NULL UNIQUE,
+                    Email VARCHAR(255) NOT NULL UNIQUE,
                     PasswordHash VARCHAR(255) NOT NULL
                 );";
             command.ExecuteNonQuery();
         }
 
-        public async Task<User> CreateUserAsync(string username, string password)
+        public async Task<User> CreateUserAsync(string email, string password)
         {
             using var connection = _connection.Clone();
             var passwordHash = HashPassword(password);
-            var user = new User { Username = username, PasswordHash = passwordHash };
+            var user = new User { Email = email, PasswordHash = passwordHash };
             var id = await connection.ExecuteAsync(
-                "INSERT INTO Users (Username, PasswordHash) VALUES (@Username, @PasswordHash)",
+                "INSERT INTO Users (Email, PasswordHash) VALUES (@Email, @PasswordHash)",
                 user
             );
             user.Id = id;
             return user;
         }
 
-        public async Task<User> GetUserByUsernameAsync(string username)
+        public async Task<User> GetUserByEmailAsync(string email)
         {
             using var connection = _connection.Clone();
             return await connection.QueryFirstOrDefaultAsync<User>(
-                "SELECT * FROM Users WHERE Username = @Username",
-                new { Username = username }
+                "SELECT * FROM Users WHERE Email = @Email",
+                new { Email = email }
             );
         }
 

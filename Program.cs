@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using aspnetcore_api.Contracts;
 using aspnetcore_api.Models;
 using aspnetcore_api.Services;
@@ -113,8 +114,9 @@ app.MapGet("/api/registrations", async (RegistrationService service, Cancellatio
 .RequireAuthorization()
 .Produces<IEnumerable<RegistrationResponse>>(StatusCodes.Status200OK);
 
-app.MapPost("/api/registrations", async Task<IResult> (RegistrationRequest request, RegistrationService service, CancellationToken cancellationToken) =>
+app.MapPost("/api/registrations", async (RegistrationRequest request, RegistrationService service, ILogger<Program> logger, CancellationToken cancellationToken) =>
 {
+    logger.LogInformation("Received registration request: {Request}", System.Text.Json.JsonSerializer.Serialize(request));
     try
     {
         var created = await service.CreateAsync(request, cancellationToken);

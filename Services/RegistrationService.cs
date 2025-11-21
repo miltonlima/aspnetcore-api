@@ -290,24 +290,37 @@ public class RegistrationService
 
     private static async Task EnsureTableAsync(MySqlConnection connection, CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText = @"CREATE TABLE IF NOT EXISTS person_registrations (
+        // Create the table if it doesn't exist, but without the password column initially.
+        // This handles the case where the app is run for the first time.
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = @"CREATE TABLE IF NOT EXISTS person_registrations (
                 id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 name VARCHAR(150) NOT NULL,
                 birth_date DATE NOT NULL,
                 cpf CHAR(11) NOT NULL,
                 email VARCHAR(180) NOT NULL,
-                password VARCHAR(255) NOT NULL,
                 description TEXT NULL,
                 created_at DATETIME NOT NULL,
                 UNIQUE KEY uq_person_registrations_cpf (cpf),
                 UNIQUE KEY uq_person_registrations_email (email)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
 
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        // Check if the 'password' column exists.
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'person_registrations' AND COLUMN_NAME = 'password'";
+            var columnExists = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) > 0;
 
-        command.CommandText = "ALTER TABLE person_registrations ADD COLUMN IF NOT EXISTS description TEXT NULL AFTER email;";
-        await command.ExecuteNonQueryAsync(cancellationToken);
+            // If the column doesn't exist, add it. This handles migrating existing tables.
+            if (!columnExists)
+            {
+                command.CommandText = "ALTER TABLE person_registrations ADD COLUMN password VARCHAR(255) NOT NULL;";
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
     }
 
     private static PersonRegistration MapReader(MySqlDataReader reader) => new()

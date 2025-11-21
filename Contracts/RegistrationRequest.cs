@@ -1,3 +1,24 @@
+using System.Text.Json.Serialization;
+
 namespace aspnetcore_api.Contracts;
 
-public record RegistrationRequest(string Name, DateOnly BirthDate, string Cpf, string Email, string? Description, string Password);
+public record RegistrationRequest
+{
+    [JsonPropertyName("name")]
+    public string Name { get; init; } = string.Empty;
+
+    [JsonPropertyName("birthDate")]
+    public DateOnly BirthDate { get; init; }
+
+    [JsonPropertyName("cpf")]
+    public string Cpf { get; init; } = string.Empty;
+
+    [JsonPropertyName("email")]
+    public string Email { get; init; } = string.Empty;
+
+    [JsonPropertyName("description")]
+    public string? Description { get; init; }
+
+    [JsonPropertyName("password")]
+    public string Password { get; init; } = string.Empty;
+}

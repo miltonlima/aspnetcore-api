@@ -44,3 +44,4 @@ C:\temp\aspnetcore-api\bin\Debug\net9.0\Microsoft.IdentityModel.Protocols.dll
 C:\temp\aspnetcore-api\bin\Debug\net9.0\Microsoft.IdentityModel.Protocols.OpenIdConnect.dll
 C:\temp\aspnetcore-api\bin\Debug\net9.0\Microsoft.IdentityModel.Tokens.dll
 C:\temp\aspnetcore-api\bin\Debug\net9.0\System.IdentityModel.Tokens.Jwt.dll
+C:\temp\aspnetcore-api\bin\Debug\net9.0\Dapper.dll
