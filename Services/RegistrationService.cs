@@ -80,9 +80,9 @@ public class RegistrationService
             throw new ArgumentException("E-mail é obrigatório.", nameof(request.Email));
         }
 
-        if (request.BirthDate == default)
+        if (!DateOnly.TryParse(request.BirthDate, out var birthDateOnly))
         {
-            throw new ArgumentException("Data de nascimento é obrigatória.", nameof(request.BirthDate));
+            throw new ArgumentException("Formato de data de nascimento inválido. Use YYYY-MM-DD.", nameof(request.BirthDate));
         }
 
         var sanitizedCpf = SanitizeCpf(request.Cpf);
@@ -113,7 +113,7 @@ public class RegistrationService
         return new PersonRegistration
         {
             Name = request.Name.Trim(),
-            BirthDate = request.BirthDate,
+            BirthDate = birthDateOnly,
             Cpf = sanitizedCpf,
             Email = request.Email.Trim(),
             Description = description,

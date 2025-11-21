@@ -8,7 +8,7 @@ public record RegistrationRequest
     public string Name { get; init; } = string.Empty;
 
     [JsonPropertyName("birthDate")]
-    public DateOnly BirthDate { get; init; }
+    public string BirthDate { get; init; } = string.Empty;
 
     [JsonPropertyName("cpf")]
     public string Cpf { get; init; } = string.Empty;
