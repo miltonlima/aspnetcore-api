@@ -149,6 +149,10 @@ Ele provê uma API REST segura para cadastro de usuários, login (via JWT) e ger
     - `GET /api/registrations`: Lista todos os usuários cadastrados (acesso autorizado).
     - `PUT /api/registrations/{id}`: Atualiza as informações de um usuário (acesso autorizado).
     - `DELETE /api/registrations/{id}`: Deleta um usuário (acesso autorizado).
+- **Gestão de Unidades de Ensino**:
+  - `GET /api/education-units`: Lista unidades educacionais cadastradas.
+  - `POST /api/education-units`: Cria uma nova unidade.
+  - `PUT /api/education-units/{id}` e `DELETE /api/education-units/{id}`: Atualizam ou removem unidades existentes.
 - **Banco de Dados**:
     - Persistência em MySQL usando uma mistura de ADO.NET (`MySqlConnector`) e Dapper.
     - Criação automática de tabelas e migração de schema leve (ex: adiciona colunas ao iniciar a aplicação).

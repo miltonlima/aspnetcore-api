@@ -45,3 +45,4 @@ C:\temp\aspnetcore-api\bin\Debug\net9.0\Microsoft.IdentityModel.Protocols.OpenId
 C:\temp\aspnetcore-api\bin\Debug\net9.0\Microsoft.IdentityModel.Tokens.dll
 C:\temp\aspnetcore-api\bin\Debug\net9.0\System.IdentityModel.Tokens.Jwt.dll
 C:\temp\aspnetcore-api\bin\Debug\net9.0\Dapper.dll
+C:\temp\aspnetcore-api\bin\Debug\net9.0\package-lock.json

@@ -42,6 +42,7 @@ builder.Services.AddScoped<MySqlConnection>(_ =>
 builder.Services.AddScoped<RegistrationService>();
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<TokenService>();
+builder.Services.AddScoped<EducationUnitService>();
 
 builder.Services.AddAuthentication(options =>
 {
@@ -160,6 +161,73 @@ app.MapPut("/api/users/me", async (ClaimsPrincipal user, UpdateUserProfileReques
 .Produces<UserProfileResponse>(StatusCodes.Status200OK)
 .Produces(StatusCodes.Status400BadRequest)
 .Produces(StatusCodes.Status401Unauthorized)
+.Produces(StatusCodes.Status404NotFound);
+
+app.MapGet("/api/education-units", async (EducationUnitService service, CancellationToken cancellationToken) =>
+{
+    var units = await service.ListAsync(cancellationToken);
+    var responses = units.Select(EducationUnitResponse.FromEntity);
+    return Results.Ok(responses);
+})
+.WithName("ListEducationUnits")
+.RequireAuthorization()
+.Produces<IEnumerable<EducationUnitResponse>>(StatusCodes.Status200OK);
+
+app.MapPost("/api/education-units", async (CreateEducationUnitRequest request, EducationUnitService service, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var created = await service.CreateAsync(request, cancellationToken);
+        return Results.Created($"/api/education-units/{created.Id}", EducationUnitResponse.FromEntity(created));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (MySqlException ex) when (ex.Number == 1062)
+    {
+        return Results.Conflict(new { message = "Código da unidade já cadastrado." });
+    }
+})
+.WithName("CreateEducationUnit")
+.RequireAuthorization()
+.Produces<EducationUnitResponse>(StatusCodes.Status201Created)
+.Produces(StatusCodes.Status400BadRequest)
+.Produces(StatusCodes.Status409Conflict);
+
+app.MapPut("/api/education-units/{id:long}", async (long id, UpdateEducationUnitRequest request, EducationUnitService service, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var updated = await service.UpdateAsync(id, request, cancellationToken);
+        return updated is null
+            ? Results.NotFound()
+            : Results.Ok(EducationUnitResponse.FromEntity(updated));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (MySqlException ex) when (ex.Number == 1062)
+    {
+        return Results.Conflict(new { message = "Código da unidade já cadastrado." });
+    }
+})
+.WithName("UpdateEducationUnit")
+.RequireAuthorization()
+.Produces<EducationUnitResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status400BadRequest)
+.Produces(StatusCodes.Status404NotFound)
+.Produces(StatusCodes.Status409Conflict);
+
+app.MapDelete("/api/education-units/{id:long}", async (long id, EducationUnitService service, CancellationToken cancellationToken) =>
+{
+    var deleted = await service.DeleteAsync(id, cancellationToken);
+    return deleted ? Results.NoContent() : Results.NotFound();
+})
+.WithName("DeleteEducationUnit")
+.RequireAuthorization()
+.Produces(StatusCodes.Status204NoContent)
 .Produces(StatusCodes.Status404NotFound);
 
 app.MapPut("/api/users/me/password", async (ClaimsPrincipal user, UpdatePasswordRequest request, RegistrationService registrationService, CancellationToken cancellationToken) =>
