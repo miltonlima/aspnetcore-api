@@ -96,9 +96,9 @@ public class RegistrationService
             throw new ArgumentException("E-mail inválido.", nameof(request.Email));
         }
 
-        if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 8)
+        if (string.IsNullOrWhiteSpace(request.Password))
         {
-            throw new ArgumentException("Senha deve conter no mínimo 8 caracteres.", nameof(request.Password));
+            throw new ArgumentException("Senha é obrigatória.", nameof(request.Password));
         }
 
         var description = string.IsNullOrWhiteSpace(request.Description)
@@ -354,6 +354,155 @@ public class RegistrationService
         }
 
         return null;
+    }
+
+    public async Task<PersonRegistration?> GetUserByIdAsync(long id, CancellationToken cancellationToken)
+    {
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await EnsureTableAsync(connection, cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = @"SELECT id, name, birth_date, cpf, email, password, description, created_at
+                                FROM person_registrations
+                                WHERE id = @id;";
+        command.Parameters.AddWithValue("@id", id);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return MapReaderWithPassword(reader);
+        }
+
+        return null;
+    }
+
+    public async Task<PersonRegistration?> UpdateUserProfileAsync(long id, UpdateUserProfileRequest request, CancellationToken cancellationToken)
+    {
+        var existing = await GetUserByIdAsync(id, cancellationToken);
+        if (existing is null)
+        {
+            return null;
+        }
+
+        var name = request.Name?.Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("Nome é obrigatório.");
+        }
+
+        var email = request.Email?.Trim();
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            throw new ArgumentException("E-mail é obrigatório.");
+        }
+
+        if (!IsValidEmail(email))
+        {
+            throw new ArgumentException("E-mail inválido.");
+        }
+
+        var sanitizedCpf = string.IsNullOrWhiteSpace(request.Cpf)
+            ? existing.Cpf
+            : SanitizeCpf(request.Cpf);
+
+        if (string.IsNullOrWhiteSpace(sanitizedCpf))
+        {
+            throw new ArgumentException("CPF é obrigatório.");
+        }
+
+        if (sanitizedCpf.Length != 11)
+        {
+            throw new ArgumentException("CPF deve conter 11 dígitos.");
+        }
+
+        var birthDate = existing.BirthDate;
+        if (!string.IsNullOrWhiteSpace(request.BirthDate))
+        {
+            if (!DateOnly.TryParse(request.BirthDate, out birthDate))
+            {
+                throw new ArgumentException("Data de nascimento inválida.");
+            }
+        }
+
+        string? description = null;
+        if (!string.IsNullOrWhiteSpace(request.Description))
+        {
+            description = request.Description.Trim();
+            if (description.Length > 1000)
+            {
+                throw new ArgumentException("Descrição deve conter no máximo 1000 caracteres.");
+            }
+        }
+
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await EnsureTableAsync(connection, cancellationToken);
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = @"UPDATE person_registrations
+                                     SET name = @name,
+                                         email = @email,
+                                         birth_date = @birthDate,
+                                         cpf = @cpf,
+                                         description = @description
+                                     WHERE id = @id;";
+            command.Parameters.AddWithValue("@name", name);
+            command.Parameters.AddWithValue("@email", email);
+            command.Parameters.AddWithValue("@birthDate", birthDate.ToDateTime(TimeOnly.MinValue));
+            command.Parameters.AddWithValue("@cpf", sanitizedCpf);
+            command.Parameters.AddWithValue("@description", description is null ? DBNull.Value : description);
+            command.Parameters.AddWithValue("@id", id);
+
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        return await GetUserByIdAsync(id, cancellationToken);
+    }
+
+    public async Task<(bool Success, bool InvalidPassword)> UpdateUserPasswordAsync(long id, string currentPassword, string newPassword, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(currentPassword))
+        {
+            throw new ArgumentException("Senha atual é obrigatória.");
+        }
+
+        if (string.IsNullOrWhiteSpace(newPassword))
+        {
+            throw new ArgumentException("Nova senha é obrigatória.");
+        }
+
+        var existing = await GetUserByIdAsync(id, cancellationToken);
+        if (existing is null)
+        {
+            return (false, false);
+        }
+
+        if (existing.Password is null || !VerifyPassword(currentPassword, existing.Password))
+        {
+            return (false, true);
+        }
+
+        var hashed = BCrypt.Net.BCrypt.HashPassword(newPassword);
+
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await EnsureTableAsync(connection, cancellationToken);
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "UPDATE person_registrations SET password = @password WHERE id = @id;";
+            command.Parameters.AddWithValue("@password", hashed);
+            command.Parameters.AddWithValue("@id", id);
+
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        return (true, false);
     }
 
     public bool VerifyPassword(string password, string hash)

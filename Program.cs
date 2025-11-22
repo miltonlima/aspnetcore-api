@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using aspnetcore_api.Contracts;
@@ -16,7 +17,13 @@ builder.Services.AddSwaggerGen();
 var allowedOrigins = builder.Configuration.GetSection("Frontend:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 if (allowedOrigins.Length == 0)
 {
-    allowedOrigins = new[] { "http://localhost:5173", "https://localhost:5173" };
+    allowedOrigins = new[]
+    {
+        "http://localhost:5173",
+        "https://localhost:5173",
+        "http://localhost:5174",
+        "https://localhost:5174"
+    };
 }
 
 builder.Services.AddCors(options =>
@@ -89,11 +96,13 @@ app.MapGet("/", () => Results.Redirect("/swagger", permanent: false));
 
 app.MapPost("/api/login", async (LoginRequest request, RegistrationService registrationService, TokenService tokenService, CancellationToken cancellationToken) =>
 {
-    if (request.Username == null || request.Password == null)
+    var identifier = request.Email ?? request.Username;
+    if (string.IsNullOrWhiteSpace(identifier) || string.IsNullOrWhiteSpace(request.Password))
     {
-        return Results.BadRequest("Username and password are required.");
+        return Results.BadRequest(new { message = "Email (or username) and password are required." });
     }
-    var user = await registrationService.GetUserByEmailAsync(request.Username, cancellationToken);
+
+    var user = await registrationService.GetUserByEmailAsync(identifier, cancellationToken);
 
     if (user is null || user.Password == null || !registrationService.VerifyPassword(request.Password, user.Password))
     {
@@ -103,6 +112,92 @@ app.MapPost("/api/login", async (LoginRequest request, RegistrationService regis
     var token = tokenService.GenerateToken(user);
     return Results.Ok(new LoginResponse { Token = token });
 });
+
+app.MapGet("/api/users/me", async (ClaimsPrincipal user, RegistrationService registrationService, CancellationToken cancellationToken) =>
+{
+    var userIdValue = user.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (!long.TryParse(userIdValue, out var userId))
+    {
+        return Results.Unauthorized();
+    }
+
+    var entity = await registrationService.GetUserByIdAsync(userId, cancellationToken);
+    if (entity is null)
+    {
+        return Results.NotFound();
+    }
+
+    return Results.Ok(UserProfileResponse.FromEntity(entity));
+})
+.WithName("GetCurrentUser")
+.RequireAuthorization()
+.Produces<UserProfileResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status401Unauthorized)
+.Produces(StatusCodes.Status404NotFound);
+
+app.MapPut("/api/users/me", async (ClaimsPrincipal user, UpdateUserProfileRequest request, RegistrationService registrationService, CancellationToken cancellationToken) =>
+{
+    var userIdValue = user.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (!long.TryParse(userIdValue, out var userId))
+    {
+        return Results.Unauthorized();
+    }
+
+    try
+    {
+        var updated = await registrationService.UpdateUserProfileAsync(userId, request, cancellationToken);
+        return updated is null
+            ? Results.NotFound()
+            : Results.Ok(UserProfileResponse.FromEntity(updated));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+})
+.WithName("UpdateCurrentUser")
+.RequireAuthorization()
+.Produces<UserProfileResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status400BadRequest)
+.Produces(StatusCodes.Status401Unauthorized)
+.Produces(StatusCodes.Status404NotFound);
+
+app.MapPut("/api/users/me/password", async (ClaimsPrincipal user, UpdatePasswordRequest request, RegistrationService registrationService, CancellationToken cancellationToken) =>
+{
+    var userIdValue = user.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (!long.TryParse(userIdValue, out var userId))
+    {
+        return Results.Unauthorized();
+    }
+
+    if (string.IsNullOrWhiteSpace(request.CurrentPassword) || string.IsNullOrWhiteSpace(request.NewPassword))
+    {
+        return Results.BadRequest(new { message = "Senha atual e nova senha são obrigatórias." });
+    }
+
+    try
+    {
+        var (success, invalidPassword) = await registrationService.UpdateUserPasswordAsync(userId, request.CurrentPassword, request.NewPassword, cancellationToken);
+        if (!success)
+        {
+            return invalidPassword
+                ? Results.BadRequest(new { message = "Senha atual inválida." })
+                : Results.NotFound();
+        }
+
+        return Results.NoContent();
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+})
+.WithName("UpdateCurrentUserPassword")
+.RequireAuthorization()
+.Produces(StatusCodes.Status204NoContent)
+.Produces(StatusCodes.Status400BadRequest)
+.Produces(StatusCodes.Status401Unauthorized)
+.Produces(StatusCodes.Status404NotFound);
 
 app.MapGet("/api/registrations", async (RegistrationService service, CancellationToken cancellationToken) =>
 {
@@ -192,19 +287,6 @@ app.MapGet("/api/dashboard", () => Results.Ok(new { Message = "Bem-vindo ao seu 
    .WithName("GetDashboardMessage")
    .RequireAuthorization()
    .Produces<object>(StatusCodes.Status200OK);
-
-app.MapGet("/api/profile", () =>
-{
-    var userProfile = new
-    {
-        Name = "Usuário de Exemplo",
-        Email = "usuario@exemplo.com",
-        JoinDate = "2025-01-15"
-    };
-    return Results.Ok(userProfile);
-}).WithName("GetUserProfile")
-.RequireAuthorization()
-.Produces<object>(StatusCodes.Status200OK);
 
 var summaries = new[]
 {

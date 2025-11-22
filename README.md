@@ -153,7 +153,7 @@ Ele provê uma API REST segura para cadastro de usuários, login (via JWT) e ger
     - Persistência em MySQL usando uma mistura de ADO.NET (`MySqlConnector`) e Dapper.
     - Criação automática de tabelas e migração de schema leve (ex: adiciona colunas ao iniciar a aplicação).
 - **Validação**:
-    - Validação robusta para campos obrigatórios, formato de e-mail, CPF (11 dígitos), senha (mín. 8 caracteres) e tamanho da descrição.
+  - Validação robusta para campos obrigatórios, formato de e-mail, CPF (11 dígitos), senha obrigatória e tamanho da descrição.
 - **Experiência de Desenvolvimento**:
     - Swagger UI para testes da API.
     - Política de CORS facilmente configurável para servidores de desenvolvimento frontend.
