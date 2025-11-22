@@ -23,6 +23,10 @@ It provides a secure RESTful API for user registration, login (via JWT), and man
     - `GET /api/registrations`: Lists all registered users (authorized access only).
     - `PUT /api/registrations/{id}`: Updates a user's information (authorized access only).
     - `DELETE /api/registrations/{id}`: Deletes a user (authorized access only).
+- **Education Network Management**:
+  - **Units**: `GET|POST|PUT|DELETE /api/education-units` with automatic table creation and duplicate-code detection.
+  - **Classes**: `GET|POST|PUT|DELETE /api/education-classes` keeping unit metadata (name/id) attached to each class record.
+  - **Students**: `GET|POST|PUT|DELETE /api/education-students` to enroll learners per class with birthdate, guardian, and notes metadata.
 - **Database**:
     - Persistence with MySQL using a mix of ADO.NET (`MySqlConnector`) and Dapper.
     - Automatic table creation and lightweight schema migration (e.g., adds new columns on startup).
@@ -94,6 +98,18 @@ Once running, the API is available at `https://localhost:7242`. The Swagger UI c
 | `DELETE` | `/api/registrations/{id}`   | Deletes a user.                                 | Yes   |
 | `GET`    | `/api/profile`              | Example: Returns a static user profile.         | Yes   |
 | `GET`    | `/api/dashboard`            | Example: Returns a static dashboard message.    | Yes   |
+| `GET`    | `/api/education-units`      | Lists education units.                          | Yes   |
+| `POST`   | `/api/education-units`      | Creates a new unit.                             | Yes   |
+| `PUT`    | `/api/education-units/{id}` | Updates an existing unit.                       | Yes   |
+| `DELETE` | `/api/education-units/{id}` | Removes a unit (blocked if in use).             | Yes   |
+| `GET`    | `/api/education-classes`    | Lists classes with their units.                 | Yes   |
+| `POST`   | `/api/education-classes`    | Creates a class linked to a unit.               | Yes   |
+| `PUT`    | `/api/education-classes/{id}` | Updates an existing class.                     | Yes   |
+| `DELETE` | `/api/education-classes/{id}` | Removes a class.                               | Yes   |
+| `GET`    | `/api/education-students`   | Lists enrolled students with class/unit info.   | Yes   |
+| `POST`   | `/api/education-students`   | Enrolls a student into a class.                 | Yes   |
+| `PUT`    | `/api/education-students/{id}` | Updates a student's enrollment data.          | Yes   |
+| `DELETE` | `/api/education-students/{id}` | Removes a student enrollment.                 | Yes   |
 
 #### Example `curl` Commands
 
@@ -121,6 +137,22 @@ Once running, the API is available at `https://localhost:7242`. The Swagger UI c
     TOKEN="your_jwt_token_here"
     curl -X GET https://localhost:7242/api/registrations -k \
       -H "Authorization: Bearer $TOKEN"
+    ```
+-   **Enroll a student into a class:**
+    ```bash
+    TOKEN="your_jwt_token_here"
+    curl -X POST https://localhost:7242/api/education-students -k \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "educationClassId": 1,
+        "name": "Lucas Pereira",
+        "registrationCode": "ALN-2025-001",
+        "birthDate": "2013-04-18",
+        "guardianName": "Maria Pereira",
+        "guardianContact": "(11) 98877-6655",
+        "notes": "Alergia a lactose"
+      }'
     ```
 
 ### Known Issues & Next Steps
@@ -157,6 +189,10 @@ Ele provê uma API REST segura para cadastro de usuários, login (via JWT) e ger
   - `GET /api/education-classes`: Lista as turmas com suas unidades associadas.
   - `POST /api/education-classes`: Cria uma nova turma vinculada a uma unidade.
   - `PUT /api/education-classes/{id}` e `DELETE /api/education-classes/{id}`: Edita ou remove turmas.
+- **Gestão de Alunos**:
+  - `GET /api/education-students`: Lista os alunos com metadados de turma e unidade.
+  - `POST /api/education-students`: Matricula um aluno em uma turma existente.
+  - `PUT /api/education-students/{id}` e `DELETE /api/education-students/{id}`: Atualizam ou removem uma matrícula.
 - **Banco de Dados**:
     - Persistência em MySQL usando uma mistura de ADO.NET (`MySqlConnector`) e Dapper.
     - Criação automática de tabelas e migração de schema leve (ex: adiciona colunas ao iniciar a aplicação).
@@ -228,6 +264,18 @@ Após a execução, a API estará disponível em `https://localhost:7242`. A UI 
 | `DELETE` | `/api/registrations/{id}`   | Deleta um usuário.                              | Sim   |
 | `GET`    | `/api/profile`              | Exemplo: Retorna um perfil de usuário estático. | Sim   |
 | `GET`    | `/api/dashboard`            | Exemplo: Retorna uma mensagem de painel estática. | Sim   |
+| `GET`    | `/api/education-units`      | Lista unidades de ensino.                       | Sim   |
+| `POST`   | `/api/education-units`      | Cria uma nova unidade.                          | Sim   |
+| `PUT`    | `/api/education-units/{id}` | Atualiza uma unidade existente.                 | Sim   |
+| `DELETE` | `/api/education-units/{id}` | Remove uma unidade (bloqueia se houver vínculos). | Sim   |
+| `GET`    | `/api/education-classes`    | Lista as turmas com suas unidades.              | Sim   |
+| `POST`   | `/api/education-classes`    | Cria uma turma vinculada a uma unidade.         | Sim   |
+| `PUT`    | `/api/education-classes/{id}` | Atualiza uma turma existente.                  | Sim   |
+| `DELETE` | `/api/education-classes/{id}` | Remove uma turma.                               | Sim   |
+| `GET`    | `/api/education-students`   | Lista alunos matriculados e suas turmas.        | Sim   |
+| `POST`   | `/api/education-students`   | Matricula um aluno em uma turma.                | Sim   |
+| `PUT`    | `/api/education-students/{id}` | Atualiza os dados de matrícula de um aluno.   | Sim   |
+| `DELETE` | `/api/education-students/{id}` | Remove uma matrícula.                          | Sim   |
 
 #### Exemplos de Comandos `curl`
 
@@ -255,6 +303,22 @@ Após a execução, a API estará disponível em `https://localhost:7242`. A UI 
     TOKEN="seu_token_jwt_aqui"
     curl -X GET https://localhost:7242/api/registrations -k \
       -H "Authorization: Bearer $TOKEN"
+    ```
+-   **Matricular um aluno em uma turma:**
+    ```bash
+    TOKEN="seu_token_jwt_aqui"
+    curl -X POST https://localhost:7242/api/education-students -k \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "educationClassId": 1,
+        "name": "Lucas Pereira",
+        "registrationCode": "ALN-2025-001",
+        "birthDate": "2013-04-18",
+        "guardianName": "Maria Pereira",
+        "guardianContact": "(11) 98877-6655",
+        "notes": "Alergia a lactose"
+      }'
     ```
 
 ### Problemas Conhecidos & Próximos Passos
