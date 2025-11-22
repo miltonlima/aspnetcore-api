@@ -43,6 +43,7 @@ builder.Services.AddScoped<RegistrationService>();
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<EducationUnitService>();
+builder.Services.AddScoped<EducationClassService>();
 
 builder.Services.AddAuthentication(options =>
 {
@@ -226,6 +227,73 @@ app.MapDelete("/api/education-units/{id:long}", async (long id, EducationUnitSer
     return deleted ? Results.NoContent() : Results.NotFound();
 })
 .WithName("DeleteEducationUnit")
+.RequireAuthorization()
+.Produces(StatusCodes.Status204NoContent)
+.Produces(StatusCodes.Status404NotFound);
+
+app.MapGet("/api/education-classes", async (EducationClassService service, CancellationToken cancellationToken) =>
+{
+    var classes = await service.ListAsync(cancellationToken);
+    var responses = classes.Select(EducationClassResponse.FromEntity);
+    return Results.Ok(responses);
+})
+.WithName("ListEducationClasses")
+.RequireAuthorization()
+.Produces<IEnumerable<EducationClassResponse>>(StatusCodes.Status200OK);
+
+app.MapPost("/api/education-classes", async (CreateEducationClassRequest request, EducationClassService service, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var created = await service.CreateAsync(request, cancellationToken);
+        return Results.Created($"/api/education-classes/{created.Id}", EducationClassResponse.FromEntity(created));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (MySqlException ex) when (ex.Number == 1062)
+    {
+        return Results.Conflict(new { message = "Código da turma já cadastrado." });
+    }
+})
+.WithName("CreateEducationClass")
+.RequireAuthorization()
+.Produces<EducationClassResponse>(StatusCodes.Status201Created)
+.Produces(StatusCodes.Status400BadRequest)
+.Produces(StatusCodes.Status409Conflict);
+
+app.MapPut("/api/education-classes/{id:long}", async (long id, UpdateEducationClassRequest request, EducationClassService service, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var updated = await service.UpdateAsync(id, request, cancellationToken);
+        return updated is null
+            ? Results.NotFound()
+            : Results.Ok(EducationClassResponse.FromEntity(updated));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (MySqlException ex) when (ex.Number == 1062)
+    {
+        return Results.Conflict(new { message = "Código da turma já cadastrado." });
+    }
+})
+.WithName("UpdateEducationClass")
+.RequireAuthorization()
+.Produces<EducationClassResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status400BadRequest)
+.Produces(StatusCodes.Status404NotFound)
+.Produces(StatusCodes.Status409Conflict);
+
+app.MapDelete("/api/education-classes/{id:long}", async (long id, EducationClassService service, CancellationToken cancellationToken) =>
+{
+    var deleted = await service.DeleteAsync(id, cancellationToken);
+    return deleted ? Results.NoContent() : Results.NotFound();
+})
+.WithName("DeleteEducationClass")
 .RequireAuthorization()
 .Produces(StatusCodes.Status204NoContent)
 .Produces(StatusCodes.Status404NotFound);

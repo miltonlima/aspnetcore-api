@@ -153,6 +153,10 @@ Ele provê uma API REST segura para cadastro de usuários, login (via JWT) e ger
   - `GET /api/education-units`: Lista unidades educacionais cadastradas.
   - `POST /api/education-units`: Cria uma nova unidade.
   - `PUT /api/education-units/{id}` e `DELETE /api/education-units/{id}`: Atualizam ou removem unidades existentes.
+- **Gestão de Turmas**:
+  - `GET /api/education-classes`: Lista as turmas com suas unidades associadas.
+  - `POST /api/education-classes`: Cria uma nova turma vinculada a uma unidade.
+  - `PUT /api/education-classes/{id}` e `DELETE /api/education-classes/{id}`: Edita ou remove turmas.
 - **Banco de Dados**:
     - Persistência em MySQL usando uma mistura de ADO.NET (`MySqlConnector`) e Dapper.
     - Criação automática de tabelas e migração de schema leve (ex: adiciona colunas ao iniciar a aplicação).
