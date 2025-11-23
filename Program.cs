@@ -310,6 +310,18 @@ app.MapGet("/api/education-students", async (EducationStudentService service, Ca
 .RequireAuthorization()
 .Produces<IEnumerable<EducationStudentResponse>>(StatusCodes.Status200OK);
 
+app.MapGet("/api/education-students/{id:long}", async (long id, EducationStudentService service, CancellationToken cancellationToken) =>
+{
+    var student = await service.GetByIdAsync(id, cancellationToken);
+    return student is null
+        ? Results.NotFound()
+        : Results.Ok(EducationStudentResponse.FromEntity(student));
+})
+.WithName("GetEducationStudent")
+.RequireAuthorization()
+.Produces<EducationStudentResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status404NotFound);
+
 app.MapPost("/api/education-students", async (CreateEducationStudentRequest request, EducationStudentService service, CancellationToken cancellationToken) =>
 {
     try
@@ -365,6 +377,48 @@ app.MapDelete("/api/education-students/{id:long}", async (long id, EducationStud
 .WithName("DeleteEducationStudent")
 .RequireAuthorization()
 .Produces(StatusCodes.Status204NoContent)
+.Produces(StatusCodes.Status404NotFound);
+
+app.MapPost("/api/education-students/{id:long}/enrollments", async (long id, CreateEducationStudentEnrollmentRequest request, EducationStudentService service, CancellationToken cancellationToken) =>
+{
+    if (request.EducationClassId <= 0)
+    {
+        return Results.BadRequest(new { message = "Turma é obrigatória." });
+    }
+
+    try
+    {
+        var student = await service.EnrollAsync(id, request.EducationClassId, cancellationToken);
+        return student is null
+            ? Results.NotFound()
+            : Results.Ok(EducationStudentResponse.FromEntity(student));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Conflict(new { message = ex.Message });
+    }
+})
+.WithName("EnrollEducationStudent")
+.RequireAuthorization()
+.Produces<EducationStudentResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status400BadRequest)
+.Produces(StatusCodes.Status404NotFound)
+.Produces(StatusCodes.Status409Conflict);
+
+app.MapDelete("/api/education-students/{studentId:long}/enrollments/{classId:long}", async (long studentId, long classId, EducationStudentService service, CancellationToken cancellationToken) =>
+{
+    var student = await service.UnenrollAsync(studentId, classId, cancellationToken);
+    return student is null
+        ? Results.NotFound()
+        : Results.Ok(EducationStudentResponse.FromEntity(student));
+})
+.WithName("UnenrollEducationStudent")
+.RequireAuthorization()
+.Produces<EducationStudentResponse>(StatusCodes.Status200OK)
 .Produces(StatusCodes.Status404NotFound);
 
 app.MapPut("/api/users/me/password", async (ClaimsPrincipal user, UpdatePasswordRequest request, RegistrationService registrationService, CancellationToken cancellationToken) =>
