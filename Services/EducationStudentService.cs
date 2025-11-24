@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using aspnetcore_api.Contracts;
 using aspnetcore_api.Models;
@@ -8,6 +9,8 @@ namespace aspnetcore_api.Services;
 public class EducationStudentService
 {
     private readonly string _connectionString;
+    private const int RegistrationSequenceDigits = 6;
+    private static readonly Regex NumericRegistrationRegex = new("^[0-9]+$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     public EducationStudentService(IConfiguration configuration)
     {
@@ -56,6 +59,11 @@ public class EducationStudentService
             throw new ArgumentException("Código de matrícula deve ter no máximo 80 caracteres.");
         }
 
+        if (!string.IsNullOrWhiteSpace(registrationCode) && !NumericRegistrationRegex.IsMatch(registrationCode))
+        {
+            throw new ArgumentException("Código de matrícula deve conter apenas números.");
+        }
+
         if (!string.IsNullOrWhiteSpace(cpf) && cpf.Length != 11)
         {
             throw new ArgumentException("CPF deve conter 11 dígitos.");
@@ -87,7 +95,7 @@ public class EducationStudentService
         string? notes)
     {
         var normalizedName = name.Trim();
-        var normalizedRegistration = string.IsNullOrWhiteSpace(registrationCode) ? null : registrationCode.Trim().ToUpperInvariant();
+        var normalizedRegistration = NormalizeRegistrationCode(registrationCode);
         var normalizedGuardianName = string.IsNullOrWhiteSpace(guardianName) ? null : guardianName.Trim();
         var normalizedGuardianContact = string.IsNullOrWhiteSpace(guardianContact) ? null : guardianContact.Trim();
         var normalizedNotes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
@@ -107,6 +115,22 @@ public class EducationStudentService
 
         ValidateStudent(normalizedName, normalizedRegistration, normalizedCpf, normalizedGuardianName, normalizedGuardianContact, normalizedNotes);
         return (normalizedName, normalizedRegistration, normalizedCpf, parsedBirthDate, normalizedGuardianName, normalizedGuardianContact, normalizedNotes);
+    }
+
+    private static string? NormalizeRegistrationCode(string? registrationCode)
+    {
+        if (string.IsNullOrWhiteSpace(registrationCode))
+        {
+            return null;
+        }
+
+        var digitsOnly = Regex.Replace(registrationCode, "[^0-9]", string.Empty);
+        if (string.IsNullOrWhiteSpace(digitsOnly))
+        {
+            throw new ArgumentException("Código de matrícula deve conter apenas números.");
+        }
+
+        return digitsOnly;
     }
 
     private static string? NormalizeCpf(string? cpf)
@@ -279,8 +303,35 @@ public class EducationStudentService
     {
         while (true)
         {
-            var suffix = Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
-            var candidate = $"ALN-{suffix}";
+            var yearPrefix = DateTime.UtcNow.Year.ToString(CultureInfo.InvariantCulture);
+
+            await using var lastCodeCommand = connection.CreateCommand();
+            lastCodeCommand.CommandText = @"SELECT registration_code
+                                            FROM education_students
+                                            WHERE registration_code REGEXP '^[0-9]+$' AND registration_code LIKE @prefix
+                                            ORDER BY registration_code DESC
+                                            LIMIT 1;";
+            lastCodeCommand.Parameters.AddWithValue("@prefix", $"{yearPrefix}%");
+
+            var result = await lastCodeCommand.ExecuteScalarAsync(cancellationToken);
+
+            long nextSequence = 1;
+            if (result is string lastCode && lastCode.StartsWith(yearPrefix, StringComparison.Ordinal))
+            {
+                var suffix = lastCode[yearPrefix.Length..];
+                if (long.TryParse(suffix, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed))
+                {
+                    nextSequence = parsed + 1;
+                }
+            }
+
+            var suffixText = nextSequence.ToString(CultureInfo.InvariantCulture);
+            if (suffixText.Length < RegistrationSequenceDigits)
+            {
+                suffixText = suffixText.PadLeft(RegistrationSequenceDigits, '0');
+            }
+
+            var candidate = string.Concat(yearPrefix, suffixText);
 
             await using var checkCommand = connection.CreateCommand();
             checkCommand.CommandText = "SELECT COUNT(*) FROM education_students WHERE registration_code = @code;";
@@ -388,23 +439,44 @@ public class EducationStudentService
         await EnsureStudentTableAsync(connection, cancellationToken);
         await EnsureEnrollmentTableAsync(connection, cancellationToken);
 
-        var finalRegistrationCode = registrationCode ?? await GenerateRegistrationCodeAsync(connection, cancellationToken);
+        var finalRegistrationCode = registrationCode;
+        var inserted = false;
+        long id = 0;
 
-        await using var command = connection.CreateCommand();
-        command.CommandText = @"INSERT INTO education_students (name, registration_code, cpf, birth_date, guardian_name, guardian_contact, notes)
+        while (!inserted)
+        {
+            finalRegistrationCode ??= await GenerateRegistrationCodeAsync(connection, cancellationToken);
+
+            await using var command = connection.CreateCommand();
+            command.CommandText = @"INSERT INTO education_students (name, registration_code, cpf, birth_date, guardian_name, guardian_contact, notes)
                     VALUES (@name, @registrationCode, @cpf, @birthDate, @guardianName, @guardianContact, @notes);";
-        command.Parameters.AddWithValue("@name", name);
-        command.Parameters.AddWithValue("@registrationCode", finalRegistrationCode);
-        command.Parameters.AddWithValue("@cpf", cpf is null ? DBNull.Value : cpf);
-        command.Parameters.AddWithValue("@birthDate", birthDate.HasValue ? birthDate.Value.ToDateTime(TimeOnly.MinValue) : DBNull.Value);
-        command.Parameters.AddWithValue("@guardianName", guardianName is null ? DBNull.Value : guardianName);
-        command.Parameters.AddWithValue("@guardianContact", guardianContact is null ? DBNull.Value : guardianContact);
-        command.Parameters.AddWithValue("@notes", notes is null ? DBNull.Value : notes);
+            command.Parameters.AddWithValue("@name", name);
+            command.Parameters.AddWithValue("@registrationCode", finalRegistrationCode);
+            command.Parameters.AddWithValue("@cpf", cpf is null ? DBNull.Value : cpf);
+            command.Parameters.AddWithValue("@birthDate", birthDate.HasValue ? birthDate.Value.ToDateTime(TimeOnly.MinValue) : DBNull.Value);
+            command.Parameters.AddWithValue("@guardianName", guardianName is null ? DBNull.Value : guardianName);
+            command.Parameters.AddWithValue("@guardianContact", guardianContact is null ? DBNull.Value : guardianContact);
+            command.Parameters.AddWithValue("@notes", notes is null ? DBNull.Value : notes);
 
-        await command.ExecuteNonQueryAsync(cancellationToken);
-        var id = command.LastInsertedId;
+            try
+            {
+                await command.ExecuteNonQueryAsync(cancellationToken);
+                id = (long)command.LastInsertedId;
+                inserted = true;
+            }
+            catch (MySqlException ex)
+            {
+                if (ex.Number == 1062 && registrationCode is null && IsRegistrationDuplicate(ex))
+                {
+                    finalRegistrationCode = null;
+                    continue;
+                }
 
-        var created = await GetByIdAsync((long)id, cancellationToken);
+                throw;
+            }
+        }
+
+        var created = await GetByIdAsync(id, cancellationToken);
         return created ?? throw new InvalidOperationException("Falha ao recuperar o aluno criado.");
     }
 
@@ -534,4 +606,8 @@ public class EducationStudentService
 
         return await GetByIdAsync(studentId, cancellationToken);
     }
+
+    private static bool IsRegistrationDuplicate(MySqlException ex) =>
+        ex.Message.Contains("registration_code", StringComparison.OrdinalIgnoreCase) ||
+        ex.Message.Contains("uq_education_students_registration", StringComparison.OrdinalIgnoreCase);
 }

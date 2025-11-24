@@ -158,6 +158,26 @@ public class EducationClassService
         return null;
     }
 
+    private static async Task<string> GenerateNextCodeAsync(MySqlConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = @"SELECT COALESCE(MAX(CAST(code AS UNSIGNED)), 0) + 1
+                                 FROM education_classes
+                                 WHERE code REGEXP '^[0-9]+$';";
+
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result switch
+        {
+            null => "1",
+            DBNull => "1",
+            long longValue => longValue.ToString(),
+            int intValue => intValue.ToString(),
+            decimal decimalValue => Convert.ToInt64(decimalValue).ToString(),
+            ulong ulongValue => ulongValue.ToString(),
+            _ => long.TryParse(result.ToString(), out var parsed) ? parsed.ToString() : "1"
+        };
+    }
+
     public async Task<EducationClass> CreateAsync(CreateEducationClassRequest request, CancellationToken cancellationToken)
     {
         if (request.EducationUnitId <= 0)
@@ -165,7 +185,7 @@ public class EducationClassService
             throw new ArgumentException("Unidade de ensino é obrigatória.");
         }
 
-        var (name, code, academicYear, description) = Normalize(request.Name, request.Code, request.AcademicYear, request.Description);
+        var (name, _, academicYear, description) = Normalize(request.Name, null, request.AcademicYear, request.Description);
 
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -173,19 +193,34 @@ public class EducationClassService
         await EnsureTableAsync(connection, cancellationToken);
         await EnsureUnitExistsAsync(connection, request.EducationUnitId, cancellationToken);
 
-        await using var command = connection.CreateCommand();
-        command.CommandText = @"INSERT INTO education_classes (education_unit_id, name, code, academic_year, description)
-                                VALUES (@educationUnitId, @name, @code, @academicYear, @description);";
-        command.Parameters.AddWithValue("@educationUnitId", request.EducationUnitId);
-        command.Parameters.AddWithValue("@name", name);
-        command.Parameters.AddWithValue("@code", code is null ? DBNull.Value : code);
-        command.Parameters.AddWithValue("@academicYear", academicYear is null ? DBNull.Value : academicYear);
-        command.Parameters.AddWithValue("@description", description is null ? DBNull.Value : description);
+        long insertedId;
+        while (true)
+        {
+            var nextCode = await GenerateNextCodeAsync(connection, cancellationToken);
 
-        await command.ExecuteNonQueryAsync(cancellationToken);
-        var id = command.LastInsertedId;
+            await using var command = connection.CreateCommand();
+            command.CommandText = @"INSERT INTO education_classes (education_unit_id, name, code, academic_year, description)
+                                    VALUES (@educationUnitId, @name, @code, @academicYear, @description);";
+            command.Parameters.AddWithValue("@educationUnitId", request.EducationUnitId);
+            command.Parameters.AddWithValue("@name", name);
+            command.Parameters.AddWithValue("@code", nextCode);
+            command.Parameters.AddWithValue("@academicYear", academicYear is null ? DBNull.Value : academicYear);
+            command.Parameters.AddWithValue("@description", description is null ? DBNull.Value : description);
 
-        return await GetByIdAsync((long)id, cancellationToken)
+            try
+            {
+                await command.ExecuteNonQueryAsync(cancellationToken);
+                insertedId = (long)command.LastInsertedId;
+                break;
+            }
+            catch (MySqlException ex) when (ex.Number == 1062)
+            {
+                // Código duplicado; gerar outro valor sequencial.
+                continue;
+            }
+        }
+
+        return await GetByIdAsync(insertedId, cancellationToken)
             ?? throw new InvalidOperationException("Falha ao recuperar a turma criada.");
     }
 
@@ -202,7 +237,7 @@ public class EducationClassService
             return null;
         }
 
-        var (name, code, academicYear, description) = Normalize(request.Name, request.Code, request.AcademicYear, request.Description);
+        var (name, normalizedExistingCode, academicYear, description) = Normalize(request.Name, existing.Code, request.AcademicYear, request.Description);
 
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -210,22 +245,39 @@ public class EducationClassService
         await EnsureTableAsync(connection, cancellationToken);
         await EnsureUnitExistsAsync(connection, request.EducationUnitId, cancellationToken);
 
-        await using var command = connection.CreateCommand();
-        command.CommandText = @"UPDATE education_classes
-                                SET education_unit_id = @educationUnitId,
-                                    name = @name,
-                                    code = @code,
-                                    academic_year = @academicYear,
-                                    description = @description
-                                WHERE id = @id;";
-        command.Parameters.AddWithValue("@educationUnitId", request.EducationUnitId);
-        command.Parameters.AddWithValue("@name", name);
-        command.Parameters.AddWithValue("@code", code is null ? DBNull.Value : code);
-        command.Parameters.AddWithValue("@academicYear", academicYear is null ? DBNull.Value : academicYear);
-        command.Parameters.AddWithValue("@description", description is null ? DBNull.Value : description);
-        command.Parameters.AddWithValue("@id", id);
+        var currentCode = string.IsNullOrWhiteSpace(normalizedExistingCode) ? null : normalizedExistingCode;
 
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        while (true)
+        {
+            var codeToPersist = currentCode ?? await GenerateNextCodeAsync(connection, cancellationToken);
+
+            await using var command = connection.CreateCommand();
+            command.CommandText = @"UPDATE education_classes
+                                    SET education_unit_id = @educationUnitId,
+                                        name = @name,
+                                        code = @code,
+                                        academic_year = @academicYear,
+                                        description = @description
+                                    WHERE id = @id;";
+            command.Parameters.AddWithValue("@educationUnitId", request.EducationUnitId);
+            command.Parameters.AddWithValue("@name", name);
+            command.Parameters.AddWithValue("@code", codeToPersist);
+            command.Parameters.AddWithValue("@academicYear", academicYear is null ? DBNull.Value : academicYear);
+            command.Parameters.AddWithValue("@description", description is null ? DBNull.Value : description);
+            command.Parameters.AddWithValue("@id", id);
+
+            try
+            {
+                await command.ExecuteNonQueryAsync(cancellationToken);
+                break;
+            }
+            catch (MySqlException ex) when (ex.Number == 1062 && currentCode is null)
+            {
+                // Código gerado acabou de ser usado; repetir geração.
+                currentCode = null;
+                continue;
+            }
+        }
 
         return await GetByIdAsync(id, cancellationToken);
     }
