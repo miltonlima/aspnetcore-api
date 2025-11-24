@@ -7,6 +7,7 @@ public class EducationStudentResponse
     public long Id { get; init; }
     public string Name { get; init; } = string.Empty;
     public string? RegistrationCode { get; init; }
+    public string? Cpf { get; init; }
     public string? BirthDate { get; init; }
     public string? GuardianName { get; init; }
     public string? GuardianContact { get; init; }
@@ -19,6 +20,7 @@ public class EducationStudentResponse
         Id = entity.Id,
         Name = entity.Name,
         RegistrationCode = entity.RegistrationCode,
+        Cpf = entity.Cpf,
         BirthDate = entity.BirthDate?.ToString("yyyy-MM-dd"),
         GuardianName = entity.GuardianName,
         GuardianContact = entity.GuardianContact,

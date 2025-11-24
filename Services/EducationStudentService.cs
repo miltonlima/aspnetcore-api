@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using aspnetcore_api.Contracts;
 using aspnetcore_api.Models;
 using MySqlConnector;
@@ -19,11 +20,12 @@ public class EducationStudentService
         Id = reader.GetInt64(0),
         Name = reader.GetString(1),
         RegistrationCode = reader.IsDBNull(2) ? null : reader.GetString(2),
-        BirthDate = reader.IsDBNull(3) ? null : DateOnly.FromDateTime(reader.GetDateTime(3)),
-        GuardianName = reader.IsDBNull(4) ? null : reader.GetString(4),
-        GuardianContact = reader.IsDBNull(5) ? null : reader.GetString(5),
-        Notes = reader.IsDBNull(6) ? null : reader.GetString(6),
-        CreatedAt = reader.GetDateTime(7),
+        Cpf = reader.IsDBNull(3) ? null : reader.GetString(3),
+        BirthDate = reader.IsDBNull(4) ? null : DateOnly.FromDateTime(reader.GetDateTime(4)),
+        GuardianName = reader.IsDBNull(5) ? null : reader.GetString(5),
+        GuardianContact = reader.IsDBNull(6) ? null : reader.GetString(6),
+        Notes = reader.IsDBNull(7) ? null : reader.GetString(7),
+        CreatedAt = reader.GetDateTime(8),
         Enrollments = new List<EducationStudentEnrollment>()
     };
 
@@ -37,7 +39,7 @@ public class EducationStudentService
         EducationUnitName = reader.IsDBNull(5) ? null : reader.GetString(5)
     };
 
-    private static void ValidateStudent(string name, string? registrationCode, string? guardianName, string? guardianContact, string? notes)
+    private static void ValidateStudent(string name, string? registrationCode, string? cpf, string? guardianName, string? guardianContact, string? notes)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -52,6 +54,11 @@ public class EducationStudentService
         if (!string.IsNullOrWhiteSpace(registrationCode) && registrationCode.Length > 80)
         {
             throw new ArgumentException("Código de matrícula deve ter no máximo 80 caracteres.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(cpf) && cpf.Length != 11)
+        {
+            throw new ArgumentException("CPF deve conter 11 dígitos.");
         }
 
         if (!string.IsNullOrWhiteSpace(guardianName) && guardianName.Length > 160)
@@ -70,9 +77,10 @@ public class EducationStudentService
         }
     }
 
-    private static (string Name, string? RegistrationCode, DateOnly? BirthDate, string? GuardianName, string? GuardianContact, string? Notes) NormalizeStudent(
+    private static (string Name, string? RegistrationCode, string? Cpf, DateOnly? BirthDate, string? GuardianName, string? GuardianContact, string? Notes) NormalizeStudent(
         string name,
         string? registrationCode,
+        string? cpf,
         string? birthDate,
         string? guardianName,
         string? guardianContact,
@@ -95,8 +103,21 @@ public class EducationStudentService
             parsedBirthDate = parsed;
         }
 
-        ValidateStudent(normalizedName, normalizedRegistration, normalizedGuardianName, normalizedGuardianContact, normalizedNotes);
-        return (normalizedName, normalizedRegistration, parsedBirthDate, normalizedGuardianName, normalizedGuardianContact, normalizedNotes);
+        var normalizedCpf = NormalizeCpf(cpf);
+
+        ValidateStudent(normalizedName, normalizedRegistration, normalizedCpf, normalizedGuardianName, normalizedGuardianContact, normalizedNotes);
+        return (normalizedName, normalizedRegistration, normalizedCpf, parsedBirthDate, normalizedGuardianName, normalizedGuardianContact, normalizedNotes);
+    }
+
+    private static string? NormalizeCpf(string? cpf)
+    {
+        if (string.IsNullOrWhiteSpace(cpf))
+        {
+            return null;
+        }
+
+        var digitsOnly = Regex.Replace(cpf, "[^0-9]", string.Empty);
+        return string.IsNullOrWhiteSpace(digitsOnly) ? null : digitsOnly;
     }
 
     private static async Task EnsureStudentTableAsync(MySqlConnection connection, CancellationToken cancellationToken)
@@ -106,12 +127,14 @@ public class EducationStudentService
                                     id BIGINT PRIMARY KEY AUTO_INCREMENT,
                                     name VARCHAR(160) NOT NULL,
                                     registration_code VARCHAR(80) NULL,
+                                    cpf VARCHAR(11) NULL,
                                     birth_date DATE NULL,
                                     guardian_name VARCHAR(160) NULL,
                                     guardian_contact VARCHAR(160) NULL,
                                     notes TEXT NULL,
                                     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                    CONSTRAINT uq_education_students_registration UNIQUE (registration_code)
+                                    CONSTRAINT uq_education_students_registration UNIQUE (registration_code),
+                                    CONSTRAINT uq_education_students_cpf UNIQUE (cpf)
                                 );";
         await command.ExecuteNonQueryAsync(cancellationToken);
 
@@ -138,6 +161,30 @@ public class EducationStudentService
         if (hasLegacyColumn is long legacy && legacy > 0)
         {
             command.CommandText = "ALTER TABLE education_students DROP COLUMN education_class_id;";
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        command.CommandText = @"SELECT COUNT(*)
+                                   FROM information_schema.COLUMNS
+                                   WHERE TABLE_SCHEMA = DATABASE()
+                                     AND TABLE_NAME = 'education_students'
+                                     AND COLUMN_NAME = 'cpf';";
+        var hasCpfColumn = await command.ExecuteScalarAsync(cancellationToken);
+        if (hasCpfColumn is long cpfColumn && cpfColumn == 0)
+        {
+            command.CommandText = "ALTER TABLE education_students ADD COLUMN cpf VARCHAR(11) NULL AFTER registration_code;";
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        command.CommandText = @"SELECT COUNT(*)
+                                   FROM information_schema.STATISTICS
+                                   WHERE TABLE_SCHEMA = DATABASE()
+                                     AND TABLE_NAME = 'education_students'
+                                     AND INDEX_NAME = 'uq_education_students_cpf';";
+        var hasCpfIndex = await command.ExecuteScalarAsync(cancellationToken);
+        if (hasCpfIndex is long cpfIndex && cpfIndex == 0)
+        {
+            command.CommandText = "CREATE UNIQUE INDEX uq_education_students_cpf ON education_students (cpf);";
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
     }
@@ -184,7 +231,7 @@ public class EducationStudentService
         return result is long count && count > 0;
     }
 
-    private static async Task PopulateEnrollmentsAsync(MySqlConnection connection, IList<EducationStudent> students, CancellationToken cancellationToken)
+    private async Task PopulateEnrollmentsAsync(IList<EducationStudent> students, CancellationToken cancellationToken)
     {
         if (students.Count == 0)
         {
@@ -193,6 +240,9 @@ public class EducationStudentService
 
         var ids = students.Select(s => s.Id).ToArray();
         var parameters = ids.Select((_, index) => $"@studentId{index}").ToArray();
+
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
 
         await using var command = connection.CreateCommand();
         command.CommandText = $@"SELECT e.student_id,
@@ -256,6 +306,7 @@ public class EducationStudentService
         command.CommandText = @"SELECT s.id,
                                         s.name,
                                         s.registration_code,
+                                        s.cpf,
                                         s.birth_date,
                                         s.guardian_name,
                                         s.guardian_contact,
@@ -265,13 +316,15 @@ public class EducationStudentService
                                  ORDER BY s.name;";
 
         var students = new List<EducationStudent>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            students.Add(MapStudent(reader));
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                students.Add(MapStudent(reader));
+            }
         }
 
-        await PopulateEnrollmentsAsync(connection, students, cancellationToken);
+        await PopulateEnrollmentsAsync(students, cancellationToken);
 
         return students;
     }
@@ -288,6 +341,7 @@ public class EducationStudentService
         command.CommandText = @"SELECT s.id,
                                         s.name,
                                         s.registration_code,
+                                        s.cpf,
                                         s.birth_date,
                                         s.guardian_name,
                                         s.guardian_contact,
@@ -297,24 +351,32 @@ public class EducationStudentService
                                  WHERE s.id = @id;";
         command.Parameters.AddWithValue("@id", id);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+        EducationStudent? student;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return null;
+            }
+
+            student = MapStudent(reader);
+        }
+
+        if (student is null)
         {
             return null;
         }
 
-        var student = MapStudent(reader);
-        await reader.CloseAsync();
-
-        await PopulateEnrollmentsAsync(connection, new List<EducationStudent> { student }, cancellationToken);
+        await PopulateEnrollmentsAsync(new List<EducationStudent> { student }, cancellationToken);
         return student;
     }
 
     public async Task<EducationStudent> CreateAsync(CreateEducationStudentRequest request, CancellationToken cancellationToken)
     {
-        var (name, registrationCode, birthDate, guardianName, guardianContact, notes) = NormalizeStudent(
+        var (name, registrationCode, cpf, birthDate, guardianName, guardianContact, notes) = NormalizeStudent(
             request.Name,
             request.RegistrationCode,
+            request.Cpf,
             request.BirthDate,
             request.GuardianName,
             request.GuardianContact,
@@ -329,10 +391,11 @@ public class EducationStudentService
         var finalRegistrationCode = registrationCode ?? await GenerateRegistrationCodeAsync(connection, cancellationToken);
 
         await using var command = connection.CreateCommand();
-        command.CommandText = @"INSERT INTO education_students (name, registration_code, birth_date, guardian_name, guardian_contact, notes)
-                                VALUES (@name, @registrationCode, @birthDate, @guardianName, @guardianContact, @notes);";
+        command.CommandText = @"INSERT INTO education_students (name, registration_code, cpf, birth_date, guardian_name, guardian_contact, notes)
+                    VALUES (@name, @registrationCode, @cpf, @birthDate, @guardianName, @guardianContact, @notes);";
         command.Parameters.AddWithValue("@name", name);
         command.Parameters.AddWithValue("@registrationCode", finalRegistrationCode);
+        command.Parameters.AddWithValue("@cpf", cpf is null ? DBNull.Value : cpf);
         command.Parameters.AddWithValue("@birthDate", birthDate.HasValue ? birthDate.Value.ToDateTime(TimeOnly.MinValue) : DBNull.Value);
         command.Parameters.AddWithValue("@guardianName", guardianName is null ? DBNull.Value : guardianName);
         command.Parameters.AddWithValue("@guardianContact", guardianContact is null ? DBNull.Value : guardianContact);
@@ -353,15 +416,18 @@ public class EducationStudentService
             return null;
         }
 
-        var (name, registrationCode, birthDate, guardianName, guardianContact, notes) = NormalizeStudent(
+        var (name, registrationCode, cpf, birthDate, guardianName, guardianContact, notes) = NormalizeStudent(
             request.Name,
             request.RegistrationCode,
+            request.Cpf,
             request.BirthDate,
             request.GuardianName,
             request.GuardianContact,
             request.Notes);
 
         var finalRegistrationCode = registrationCode ?? existing.RegistrationCode;
+        var cpfProvided = request.Cpf is not null;
+        var finalCpf = cpfProvided ? cpf : existing.Cpf;
 
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -378,6 +444,7 @@ public class EducationStudentService
         command.CommandText = @"UPDATE education_students
                                 SET name = @name,
                                     registration_code = @registrationCode,
+                                    cpf = @cpf,
                                     birth_date = @birthDate,
                                     guardian_name = @guardianName,
                                     guardian_contact = @guardianContact,
@@ -385,6 +452,7 @@ public class EducationStudentService
                                 WHERE id = @id;";
         command.Parameters.AddWithValue("@name", name);
         command.Parameters.AddWithValue("@registrationCode", finalRegistrationCode);
+        command.Parameters.AddWithValue("@cpf", finalCpf is null ? DBNull.Value : finalCpf);
         command.Parameters.AddWithValue("@birthDate", birthDate.HasValue ? birthDate.Value.ToDateTime(TimeOnly.MinValue) : DBNull.Value);
         command.Parameters.AddWithValue("@guardianName", guardianName is null ? DBNull.Value : guardianName);
         command.Parameters.AddWithValue("@guardianContact", guardianContact is null ? DBNull.Value : guardianContact);

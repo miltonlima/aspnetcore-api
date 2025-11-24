@@ -335,7 +335,10 @@ app.MapPost("/api/education-students", async (CreateEducationStudentRequest requ
     }
     catch (MySqlException ex) when (ex.Number == 1062)
     {
-        return Results.Conflict(new { message = "Código de matrícula já cadastrado." });
+        var message = ex.Message.Contains("uq_education_students_cpf", System.StringComparison.OrdinalIgnoreCase)
+            ? "CPF já cadastrado."
+            : "Código de matrícula já cadastrado.";
+        return Results.Conflict(new { message });
     }
 })
 .WithName("CreateEducationStudent")
@@ -359,7 +362,10 @@ app.MapPut("/api/education-students/{id:long}", async (long id, UpdateEducationS
     }
     catch (MySqlException ex) when (ex.Number == 1062)
     {
-        return Results.Conflict(new { message = "Código de matrícula já cadastrado." });
+        var message = ex.Message.Contains("uq_education_students_cpf", System.StringComparison.OrdinalIgnoreCase)
+            ? "CPF já cadastrado."
+            : "Código de matrícula já cadastrado.";
+        return Results.Conflict(new { message });
     }
 })
 .WithName("UpdateEducationStudent")
