@@ -15,6 +15,8 @@ public class RequestLogService
     private const int MaxPathLength = 512;
     private const int MaxEmailLength = 320;
     private const int MaxIpLength = 128;
+    private const int MaxActionLength = 128;
+    private const int MaxDescriptionLength = 64;
     private readonly string _connectionString;
     private readonly ILogger<RequestLogService> _logger;
     private static volatile bool _tableEnsured;
@@ -53,6 +55,8 @@ public class RequestLogService
                                         method,
                                         path,
                                         query_string,
+                                        action,
+                                        description,
                                         status_code,
                                         ip_address,
                                         user_agent,
@@ -64,6 +68,8 @@ public class RequestLogService
                                         @method,
                                         @path,
                                         @query_string,
+                                        @action,
+                                        @description,
                                         @status_code,
                                         @ip_address,
                                         @user_agent,
@@ -71,6 +77,8 @@ public class RequestLogService
                                     );";
 
             var (userId, userEmail, isAuthenticated) = ExtractUser(context.User);
+            var action = ResolveAction(context, isAuthenticated);
+            var description = ResolveDescription(context.Request.Method);
 
             command.Parameters.AddWithValue("@user_id", userId.HasValue ? userId.Value : DBNull.Value);
             command.Parameters.AddWithValue("@user_email", string.IsNullOrWhiteSpace(userEmail) ? DBNull.Value : Truncate(userEmail, MaxEmailLength)!);
@@ -78,6 +86,8 @@ public class RequestLogService
             command.Parameters.AddWithValue("@method", Truncate(context.Request.Method, MaxMethodLength) ?? string.Empty);
             command.Parameters.AddWithValue("@path", Truncate(context.Request.Path.Value, MaxPathLength) ?? string.Empty);
             command.Parameters.AddWithValue("@query_string", string.IsNullOrWhiteSpace(context.Request.QueryString.Value) ? DBNull.Value : context.Request.QueryString.Value);
+            command.Parameters.AddWithValue("@action", string.IsNullOrWhiteSpace(action) ? DBNull.Value : Truncate(action, MaxActionLength)!);
+            command.Parameters.AddWithValue("@description", string.IsNullOrWhiteSpace(description) ? DBNull.Value : Truncate(description, MaxDescriptionLength)!);
             command.Parameters.AddWithValue("@status_code", context.Response.StatusCode);
             var ipAddress = GetIpAddress(context);
             command.Parameters.AddWithValue("@ip_address", string.IsNullOrWhiteSpace(ipAddress) ? DBNull.Value : Truncate(ipAddress, MaxIpLength)!);
@@ -125,6 +135,73 @@ public class RequestLogService
         return value.Length <= maxLength ? value : value[..maxLength];
     }
 
+    private static string? ResolveAction(HttpContext context, bool isAuthenticated)
+    {
+        if (!isAuthenticated)
+        {
+            return null;
+        }
+
+        var method = context.Request.Method?.ToUpperInvariant();
+        var path = context.Request.Path.Value?.ToLowerInvariant() ?? string.Empty;
+
+        if (!path.StartsWith("/api/", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        if (path.StartsWith("/api/education-units", StringComparison.Ordinal))
+        {
+            return method switch
+            {
+                "POST" => "Criação de unidade de ensino",
+                "PUT" => "Atualização de unidade de ensino",
+                "DELETE" => "Exclusão de unidade de ensino",
+                _ => null
+            };
+        }
+
+        if (path.StartsWith("/api/education-classes", StringComparison.Ordinal))
+        {
+            return method switch
+            {
+                "POST" => "Criação de turma",
+                "PUT" => "Atualização de turma",
+                "DELETE" => "Exclusão de turma",
+                _ => null
+            };
+        }
+
+        if (path.Contains("/education-students") && path.EndsWith("/enrollments", StringComparison.Ordinal))
+        {
+            return method switch
+            {
+                "POST" => "Inscrição de aluno em turma",
+                _ => null
+            };
+        }
+
+        return null;
+    }
+
+    private static string? ResolveDescription(string? method)
+    {
+        if (string.IsNullOrWhiteSpace(method))
+        {
+            return null;
+        }
+
+        return method.ToUpperInvariant() switch
+        {
+            "GET" => "select",
+            "POST" => "insert",
+            "PUT" => "update",
+            "PATCH" => "update",
+            "DELETE" => "delete",
+            _ => null
+        };
+    }
+
     private static string? GetIpAddress(HttpContext context)
     {
         const string forwardedHeader = "X-Forwarded-For";
@@ -160,6 +237,8 @@ public class RequestLogService
                                         method VARCHAR(16) NOT NULL,
                                         path VARCHAR(512) NOT NULL,
                                         query_string TEXT NULL,
+                                        action VARCHAR(128) NULL,
+                                        description VARCHAR(64) NULL,
                                         status_code INT NOT NULL,
                                         ip_address VARCHAR(128) NULL,
                                         user_agent TEXT NULL,
@@ -169,6 +248,31 @@ public class RequestLogService
                                         INDEX idx_request_logs_user_id (user_id)
                                     );";
             await command.ExecuteNonQueryAsync(cancellationToken);
+
+            command.CommandText = @"SELECT COUNT(*)
+                                     FROM information_schema.COLUMNS
+                                     WHERE TABLE_SCHEMA = DATABASE()
+                                       AND TABLE_NAME = 'request_logs'
+                                       AND COLUMN_NAME = 'action';";
+            var hasActionColumn = await command.ExecuteScalarAsync(cancellationToken);
+            if (hasActionColumn is long actionCount && actionCount == 0)
+            {
+                command.CommandText = "ALTER TABLE request_logs ADD COLUMN action VARCHAR(128) NULL AFTER query_string;";
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            command.CommandText = @"SELECT COUNT(*)
+                                     FROM information_schema.COLUMNS
+                                     WHERE TABLE_SCHEMA = DATABASE()
+                                       AND TABLE_NAME = 'request_logs'
+                                       AND COLUMN_NAME = 'description';";
+            var hasDescriptionColumn = await command.ExecuteScalarAsync(cancellationToken);
+            if (hasDescriptionColumn is long descriptionCount && descriptionCount == 0)
+            {
+                command.CommandText = "ALTER TABLE request_logs ADD COLUMN description VARCHAR(64) NULL AFTER action;";
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+
             _tableEnsured = true;
         }
         finally
