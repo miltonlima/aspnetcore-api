@@ -78,7 +78,7 @@ public class RequestLogService
 
             var (userId, userEmail, isAuthenticated) = ExtractUser(context.User);
             var action = ResolveAction(context, isAuthenticated);
-            var description = ResolveDescription(context.Request.Method);
+            var description = ResolveDescription(context);
 
             command.Parameters.AddWithValue("@user_id", userId.HasValue ? userId.Value : DBNull.Value);
             command.Parameters.AddWithValue("@user_email", string.IsNullOrWhiteSpace(userEmail) ? DBNull.Value : Truncate(userEmail, MaxEmailLength)!);
@@ -184,14 +184,16 @@ public class RequestLogService
         return null;
     }
 
-    private static string? ResolveDescription(string? method)
+    private static string? ResolveDescription(HttpContext context)
     {
+        var method = context.Request.Method;
         if (string.IsNullOrWhiteSpace(method))
         {
             return null;
         }
 
-        return method.ToUpperInvariant() switch
+        var normalizedMethod = method.ToUpperInvariant();
+        var baseDescription = normalizedMethod switch
         {
             "GET" => "select",
             "POST" => "insert",
@@ -200,6 +202,64 @@ public class RequestLogService
             "DELETE" => "delete",
             _ => null
         };
+        if (string.IsNullOrEmpty(baseDescription))
+        {
+            return null;
+        }
+
+        var pathValue = context.Request.Path.Value ?? string.Empty;
+        var segments = pathValue.Split('?', 2)[0]
+                                 .TrimEnd('/')
+                                 .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (segments.Length == 0)
+        {
+            return baseDescription;
+        }
+
+        string? resource = null;
+        string? identifier = ExtractNumericIdentifier(segments);
+
+        if (pathValue.StartsWith("/api/education-units", StringComparison.OrdinalIgnoreCase))
+        {
+            resource = "unit";
+            if (!string.IsNullOrEmpty(identifier) && (normalizedMethod == "PUT" || normalizedMethod == "DELETE"))
+            {
+                return $"{baseDescription}:{resource}:{identifier}";
+            }
+        }
+        else if (pathValue.StartsWith("/api/education-classes", StringComparison.OrdinalIgnoreCase))
+        {
+            resource = "class";
+            if (!string.IsNullOrEmpty(identifier) && (normalizedMethod == "PUT" || normalizedMethod == "DELETE"))
+            {
+                return $"{baseDescription}:{resource}:{identifier}";
+            }
+        }
+        else if (pathValue.Contains("/education-students", StringComparison.OrdinalIgnoreCase) &&
+                 pathValue.EndsWith("/enrollments", StringComparison.OrdinalIgnoreCase))
+        {
+            resource = "enrollment";
+            if (!string.IsNullOrEmpty(identifier) && normalizedMethod == "POST")
+            {
+                return $"{baseDescription}:{resource}:student:{identifier}";
+            }
+        }
+
+        return baseDescription;
+    }
+
+    private static string? ExtractNumericIdentifier(string[] segments)
+    {
+        for (var index = segments.Length - 1; index >= 0; index--)
+        {
+            var segment = segments[index];
+            if (long.TryParse(segment, out var id))
+            {
+                return id.ToString();
+            }
+        }
+
+        return null;
     }
 
     private static string? GetIpAddress(HttpContext context)
