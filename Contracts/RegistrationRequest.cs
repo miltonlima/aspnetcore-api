@@ -21,4 +21,7 @@ public record RegistrationRequest
 
     [JsonPropertyName("password")]
     public string Password { get; init; } = string.Empty;
+
+    [JsonPropertyName("theme")]
+    public string? Theme { get; init; }
 }

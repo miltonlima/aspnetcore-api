@@ -9,5 +9,6 @@ public class PersonRegistration
     public string Email { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public string Theme { get; set; } = "dark";
     public DateTime CreatedAt { get; set; }
 }

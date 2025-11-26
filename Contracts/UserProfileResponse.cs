@@ -10,6 +10,7 @@ namespace aspnetcore_api.Contracts
         public string BirthDate { get; init; } = string.Empty;
         public string Cpf { get; init; } = string.Empty;
         public string? Description { get; init; }
+        public string Theme { get; init; } = "dark";
         public DateTime CreatedAt { get; init; }
 
         public static UserProfileResponse FromEntity(PersonRegistration entity) => new()
@@ -20,6 +21,7 @@ namespace aspnetcore_api.Contracts
             BirthDate = entity.BirthDate.ToString("yyyy-MM-dd"),
             Cpf = entity.Cpf,
             Description = entity.Description,
+            Theme = string.IsNullOrWhiteSpace(entity.Theme) ? "dark" : entity.Theme,
             CreatedAt = entity.CreatedAt
         };
     }

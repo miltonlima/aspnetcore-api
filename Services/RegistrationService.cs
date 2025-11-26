@@ -28,14 +28,15 @@ public class RegistrationService
 
         await using (var command = connection.CreateCommand())
         {
-            command.CommandText = @"INSERT INTO person_registrations (name, birth_date, cpf, email, password, description, created_at)
-                                    VALUES (@name, @birthDate, @cpf, @email, @password, @description, @createdAt);";
+            command.CommandText = @"INSERT INTO person_registrations (name, birth_date, cpf, email, password, description, theme, created_at)
+                                    VALUES (@name, @birthDate, @cpf, @email, @password, @description, @theme, @createdAt);";
             command.Parameters.AddWithValue("@name", person.Name);
             command.Parameters.AddWithValue("@birthDate", person.BirthDate.ToDateTime(TimeOnly.MinValue));
             command.Parameters.AddWithValue("@cpf", person.Cpf);
             command.Parameters.AddWithValue("@email", person.Email);
             command.Parameters.AddWithValue("@password", person.Password);
             command.Parameters.AddWithValue("@description", person.Description is null ? DBNull.Value : person.Description);
+            command.Parameters.AddWithValue("@theme", person.Theme);
             command.Parameters.AddWithValue("@createdAt", person.CreatedAt);
 
             await command.ExecuteNonQueryAsync(cancellationToken);
@@ -53,7 +54,7 @@ public class RegistrationService
         await EnsureTableAsync(connection, cancellationToken);
 
         await using var command = connection.CreateCommand();
-        command.CommandText = @"SELECT id, name, birth_date, cpf, email, description, created_at
+        command.CommandText = @"SELECT id, name, birth_date, cpf, email, description, theme, created_at
                                 FROM person_registrations
                                 ORDER BY created_at DESC;";
 
@@ -110,6 +111,8 @@ public class RegistrationService
             throw new ArgumentException("Descrição deve conter no máximo 1000 caracteres.", nameof(request.Description));
         }
 
+        var theme = NormalizeTheme(request.Theme);
+
         return new PersonRegistration
         {
             Name = request.Name.Trim(),
@@ -117,6 +120,7 @@ public class RegistrationService
             Cpf = sanitizedCpf,
             Email = request.Email.Trim(),
             Description = description,
+            Theme = theme,
             CreatedAt = DateTime.UtcNow
         };
     }
@@ -136,6 +140,22 @@ public class RegistrationService
 
     private static string SanitizeCpf(string cpf) =>
         Regex.Replace(cpf ?? string.Empty, "[^0-9]", string.Empty);
+
+    private static string NormalizeTheme(string? theme)
+    {
+        if (string.IsNullOrWhiteSpace(theme))
+        {
+            return "dark";
+        }
+
+        var normalized = theme.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "light" => "light",
+            "dark" => "dark",
+            _ => throw new ArgumentException("Tema inválido. Utilize 'light' ou 'dark'.", nameof(theme))
+        };
+    }
 
     public async Task<PersonRegistration?> UpdateDescriptionAsync(long id, string? description, CancellationToken cancellationToken)
     {
@@ -169,7 +189,7 @@ public class RegistrationService
         }
 
         await using var fetch = connection.CreateCommand();
-        fetch.CommandText = @"SELECT id, name, birth_date, cpf, email, description, created_at
+        fetch.CommandText = @"SELECT id, name, birth_date, cpf, email, description, theme, created_at
                                 FROM person_registrations
                                 WHERE id = @id;";
         fetch.Parameters.AddWithValue("@id", id);
@@ -192,7 +212,7 @@ public class RegistrationService
 
         // Fetch existing
         await using var fetch = connection.CreateCommand();
-        fetch.CommandText = @"SELECT id, name, birth_date, cpf, email, description, created_at
+        fetch.CommandText = @"SELECT id, name, birth_date, cpf, email, description, theme, created_at
                                 FROM person_registrations
                                 WHERE id = @id;";
         fetch.Parameters.AddWithValue("@id", id);
@@ -274,7 +294,7 @@ public class RegistrationService
 
         // Fetch updated
         await using var fetchUpdated = connection.CreateCommand();
-        fetchUpdated.CommandText = @"SELECT id, name, birth_date, cpf, email, description, created_at
+        fetchUpdated.CommandText = @"SELECT id, name, birth_date, cpf, email, description, theme, created_at
                                 FROM person_registrations
                                 WHERE id = @id;";
         fetchUpdated.Parameters.AddWithValue("@id", id);
@@ -320,6 +340,18 @@ public class RegistrationService
                 command.CommandText = "ALTER TABLE person_registrations ADD COLUMN password VARCHAR(255) NOT NULL;";
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
+
+            command.CommandText = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'person_registrations' AND COLUMN_NAME = 'theme'";
+            var themeColumnExists = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) > 0;
+
+            if (!themeColumnExists)
+            {
+                command.CommandText = "ALTER TABLE person_registrations ADD COLUMN theme VARCHAR(20) NOT NULL DEFAULT 'dark';";
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            command.CommandText = "UPDATE person_registrations SET theme = 'dark' WHERE theme IS NULL OR theme NOT IN ('light','dark');";
+            await command.ExecuteNonQueryAsync(cancellationToken);
         }
     }
 
@@ -331,7 +363,8 @@ public class RegistrationService
         Cpf = reader.GetString(3),
         Email = reader.GetString(4),
         Description = reader.IsDBNull(5) ? null : reader.GetString(5),
-        CreatedAt = reader.GetDateTime(6)
+        Theme = reader.IsDBNull(6) ? "dark" : reader.GetString(6),
+        CreatedAt = reader.GetDateTime(7)
     };
 
     public async Task<PersonRegistration?> GetUserByEmailAsync(string email, CancellationToken cancellationToken)
@@ -342,7 +375,7 @@ public class RegistrationService
         await EnsureTableAsync(connection, cancellationToken);
 
         await using var command = connection.CreateCommand();
-        command.CommandText = @"SELECT id, name, birth_date, cpf, email, password, description, created_at
+        command.CommandText = @"SELECT id, name, birth_date, cpf, email, password, description, theme, created_at
                                 FROM person_registrations
                                 WHERE email = @email;";
         command.Parameters.AddWithValue("@email", email);
@@ -364,7 +397,7 @@ public class RegistrationService
         await EnsureTableAsync(connection, cancellationToken);
 
         await using var command = connection.CreateCommand();
-        command.CommandText = @"SELECT id, name, birth_date, cpf, email, password, description, created_at
+        command.CommandText = @"SELECT id, name, birth_date, cpf, email, password, description, theme, created_at
                                 FROM person_registrations
                                 WHERE id = @id;";
         command.Parameters.AddWithValue("@id", id);
@@ -436,6 +469,8 @@ public class RegistrationService
             }
         }
 
+        var theme = NormalizeTheme(string.IsNullOrWhiteSpace(request.Theme) ? existing.Theme : request.Theme);
+
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
@@ -448,13 +483,15 @@ public class RegistrationService
                                          email = @email,
                                          birth_date = @birthDate,
                                          cpf = @cpf,
-                                         description = @description
+                                         description = @description,
+                                         theme = @theme
                                      WHERE id = @id;";
             command.Parameters.AddWithValue("@name", name);
             command.Parameters.AddWithValue("@email", email);
             command.Parameters.AddWithValue("@birthDate", birthDate.ToDateTime(TimeOnly.MinValue));
             command.Parameters.AddWithValue("@cpf", sanitizedCpf);
             command.Parameters.AddWithValue("@description", description is null ? DBNull.Value : description);
+            command.Parameters.AddWithValue("@theme", theme);
             command.Parameters.AddWithValue("@id", id);
 
             await command.ExecuteNonQueryAsync(cancellationToken);
@@ -519,6 +556,7 @@ public class RegistrationService
         Email = reader.GetString(4),
         Password = reader.GetString(5),
         Description = reader.IsDBNull(6) ? null : reader.GetString(6),
-        CreatedAt = reader.GetDateTime(7)
+        Theme = reader.IsDBNull(7) ? "dark" : reader.GetString(7),
+        CreatedAt = reader.GetDateTime(8)
     };
 }
