@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Linq;
 using System.Security.Claims;
 using System.Text;
@@ -7,6 +8,7 @@ using aspnetcore_api.Contracts;
 using aspnetcore_api.Models;
 using aspnetcore_api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using MySqlConnector;
 
@@ -55,6 +57,7 @@ builder.Services.AddScoped<EducationUnitService>();
 builder.Services.AddScoped<EducationClassService>();
 builder.Services.AddScoped<EducationStudentService>();
 builder.Services.AddScoped<DashboardService>();
+builder.Services.AddScoped<RequestLogService>();
 
 builder.Services.AddAuthentication(options =>
 {
@@ -101,6 +104,16 @@ app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.Use(async (context, next) =>
+{
+    var stopwatch = Stopwatch.StartNew();
+    await next();
+    stopwatch.Stop();
+
+    var loggerService = context.RequestServices.GetRequiredService<RequestLogService>();
+    await loggerService.LogRequestAsync(context, stopwatch.Elapsed, context.RequestAborted);
+});
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
