@@ -172,6 +172,17 @@ public class RequestLogService
             };
         }
 
+        if (path.StartsWith("/api/education-students", StringComparison.Ordinal) && !path.EndsWith("/enrollments", StringComparison.Ordinal))
+        {
+            return method switch
+            {
+                "POST" => "Criação de aluno",
+                "PUT" => "Atualização de aluno",
+                "DELETE" => "Exclusão de aluno",
+                _ => null
+            };
+        }
+
         if (path.Contains("/education-students") && path.EndsWith("/enrollments", StringComparison.Ordinal))
         {
             return method switch
@@ -216,38 +227,33 @@ public class RequestLogService
         }
 
         var resourceSegment = segments[1];
-        string? resource = null;
-        string? resourceId = null;
-
-        if (resourceSegment.Equals("education-units", StringComparison.OrdinalIgnoreCase))
+        string? resource = resourceSegment.ToLowerInvariant() switch
         {
-            resource = "education-unit";
-        }
-        else if (resourceSegment.Equals("education-classes", StringComparison.OrdinalIgnoreCase))
-        {
-            resource = "education-class";
-        }
-
-        if (resource is not null && segments.Length >= 3)
-        {
-            var candidate = segments[2];
-            if (long.TryParse(candidate, out _))
-            {
-                resourceId = candidate;
-            }
-        }
+            "education-units" => "education-unit",
+            "education-classes" => "education-class",
+            "education-students" => segments.Length > 2 && segments[^1].Equals("enrollments", StringComparison.OrdinalIgnoreCase)
+                ? "education-student-enrollment"
+                : "education-student",
+            _ => null
+        };
 
         if (resource is null)
         {
             return crud;
         }
 
-        if (!isAuthenticated)
+        long? resourceId = null;
+        for (var i = 2; i < segments.Length; i++)
         {
-            return crud;
+            var segment = segments[i];
+            if (long.TryParse(segment, out var parsedId))
+            {
+                resourceId = parsedId;
+                break;
+            }
         }
 
-        return resourceId is null ? $"{crud}:{resource}" : $"{crud}:{resource}:{resourceId}";
+        return resourceId.HasValue ? $"{crud}:{resource}:{resourceId.Value}" : $"{crud}:{resource}";
     }
 
     private static string? GetIpAddress(HttpContext context)

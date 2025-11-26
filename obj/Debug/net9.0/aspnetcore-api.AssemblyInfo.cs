@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("aspnetcore-api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e195bdd794464bdf794229ceb328b05cba5213d3")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7094621596db3d55a9f9b930fc9364d5256bece9")]
 [assembly: System.Reflection.AssemblyProductAttribute("aspnetcore-api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("aspnetcore-api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
