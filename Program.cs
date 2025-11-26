@@ -2,6 +2,7 @@ using System.Linq;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using aspnetcore_api.Contracts;
 using aspnetcore_api.Models;
 using aspnetcore_api.Services;
@@ -14,6 +15,13 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+    options.SerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
+    options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+});
 
 var allowedOrigins = builder.Configuration.GetSection("Frontend:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 if (allowedOrigins.Length == 0)
@@ -46,6 +54,7 @@ builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<EducationUnitService>();
 builder.Services.AddScoped<EducationClassService>();
 builder.Services.AddScoped<EducationStudentService>();
+builder.Services.AddScoped<DashboardService>();
 
 builder.Services.AddAuthentication(options =>
 {
@@ -548,10 +557,14 @@ app.MapDelete("/api/registrations/{id:long}", async Task<IResult> (long id, Canc
 .Produces(Microsoft.AspNetCore.Http.StatusCodes.Status400BadRequest)
 .Produces(Microsoft.AspNetCore.Http.StatusCodes.Status404NotFound);
 
-app.MapGet("/api/dashboard", () => Results.Ok(new { Message = "Bem-vindo ao seu novo painel!" }))
-   .WithName("GetDashboardMessage")
-   .RequireAuthorization()
-   .Produces<object>(StatusCodes.Status200OK);
+app.MapGet("/api/dashboard", async (DashboardService service, CancellationToken cancellationToken) =>
+{
+    var summary = await service.GetEnrollmentSummaryAsync(cancellationToken);
+    return Results.Ok(summary);
+})
+.WithName("GetDashboardSummary")
+.RequireAuthorization()
+.Produces<DashboardEnrollmentSummaryResponse>(StatusCodes.Status200OK);
 
 var summaries = new[]
 {
