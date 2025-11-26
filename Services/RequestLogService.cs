@@ -78,7 +78,7 @@ public class RequestLogService
 
             var (userId, userEmail, isAuthenticated) = ExtractUser(context.User);
             var action = ResolveAction(context, isAuthenticated);
-            var description = ResolveDescription(context);
+            var description = ResolveDescription(context, isAuthenticated);
 
             command.Parameters.AddWithValue("@user_id", userId.HasValue ? userId.Value : DBNull.Value);
             command.Parameters.AddWithValue("@user_email", string.IsNullOrWhiteSpace(userEmail) ? DBNull.Value : Truncate(userEmail, MaxEmailLength)!);
@@ -184,7 +184,7 @@ public class RequestLogService
         return null;
     }
 
-    private static string? ResolveDescription(HttpContext context)
+    private static string? ResolveDescription(HttpContext context, bool isAuthenticated)
     {
         var method = context.Request.Method;
         if (string.IsNullOrWhiteSpace(method))
@@ -192,8 +192,8 @@ public class RequestLogService
             return null;
         }
 
-        var normalizedMethod = method.ToUpperInvariant();
-        var baseDescription = normalizedMethod switch
+        var verb = method.ToUpperInvariant();
+        var crud = verb switch
         {
             "GET" => "select",
             "POST" => "insert",
@@ -202,64 +202,52 @@ public class RequestLogService
             "DELETE" => "delete",
             _ => null
         };
-        if (string.IsNullOrEmpty(baseDescription))
+
+        if (crud is null)
         {
             return null;
         }
 
         var pathValue = context.Request.Path.Value ?? string.Empty;
-        var segments = pathValue.Split('?', 2)[0]
-                                 .TrimEnd('/')
-                                 .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (segments.Length == 0)
+        var segments = pathValue.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 2 || !segments[0].Equals("api", StringComparison.OrdinalIgnoreCase))
         {
-            return baseDescription;
+            return crud;
         }
 
+        var resourceSegment = segments[1];
         string? resource = null;
-        string? identifier = ExtractNumericIdentifier(segments);
+        string? resourceId = null;
 
-        if (pathValue.StartsWith("/api/education-units", StringComparison.OrdinalIgnoreCase))
+        if (resourceSegment.Equals("education-units", StringComparison.OrdinalIgnoreCase))
         {
-            resource = "unit";
-            if (!string.IsNullOrEmpty(identifier) && (normalizedMethod == "PUT" || normalizedMethod == "DELETE"))
-            {
-                return $"{baseDescription}:{resource}:{identifier}";
-            }
+            resource = "education-unit";
         }
-        else if (pathValue.StartsWith("/api/education-classes", StringComparison.OrdinalIgnoreCase))
+        else if (resourceSegment.Equals("education-classes", StringComparison.OrdinalIgnoreCase))
         {
-            resource = "class";
-            if (!string.IsNullOrEmpty(identifier) && (normalizedMethod == "PUT" || normalizedMethod == "DELETE"))
-            {
-                return $"{baseDescription}:{resource}:{identifier}";
-            }
+            resource = "education-class";
         }
-        else if (pathValue.Contains("/education-students", StringComparison.OrdinalIgnoreCase) &&
-                 pathValue.EndsWith("/enrollments", StringComparison.OrdinalIgnoreCase))
+
+        if (resource is not null && segments.Length >= 3)
         {
-            resource = "enrollment";
-            if (!string.IsNullOrEmpty(identifier) && normalizedMethod == "POST")
+            var candidate = segments[2];
+            if (long.TryParse(candidate, out _))
             {
-                return $"{baseDescription}:{resource}:student:{identifier}";
+                resourceId = candidate;
             }
         }
 
-        return baseDescription;
-    }
-
-    private static string? ExtractNumericIdentifier(string[] segments)
-    {
-        for (var index = segments.Length - 1; index >= 0; index--)
+        if (resource is null)
         {
-            var segment = segments[index];
-            if (long.TryParse(segment, out var id))
-            {
-                return id.ToString();
-            }
+            return crud;
         }
 
-        return null;
+        if (!isAuthenticated)
+        {
+            return crud;
+        }
+
+        return resourceId is null ? $"{crud}:{resource}" : $"{crud}:{resource}:{resourceId}";
     }
 
     private static string? GetIpAddress(HttpContext context)
