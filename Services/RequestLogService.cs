@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
@@ -172,17 +173,6 @@ public class RequestLogService
             };
         }
 
-        if (path.StartsWith("/api/education-students", StringComparison.Ordinal) && !path.EndsWith("/enrollments", StringComparison.Ordinal))
-        {
-            return method switch
-            {
-                "POST" => "Criação de aluno",
-                "PUT" => "Atualização de aluno",
-                "DELETE" => "Exclusão de aluno",
-                _ => null
-            };
-        }
-
         if (path.Contains("/education-students") && path.EndsWith("/enrollments", StringComparison.Ordinal))
         {
             return method switch
@@ -219,41 +209,124 @@ public class RequestLogService
             return null;
         }
 
+        var (resource, resourceId) = ResolveResourceAndId(context, verb);
+
+        if (resource is null || !isAuthenticated)
+        {
+            return resource is null ? crud : $"{crud}:{resource}";
+        }
+
+        if (resourceId is null)
+        {
+            resourceId = TryExtractIdFromLocation(context.Response.Headers);
+        }
+
+        return resourceId is null
+            ? $"{crud}:{resource}"
+            : $"{crud}:{resource}:{resourceId}";
+    }
+
+    private static (string? Resource, string? ResourceId) ResolveResourceAndId(HttpContext context, string verb)
+    {
         var pathValue = context.Request.Path.Value ?? string.Empty;
         var segments = pathValue.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (segments.Length < 2 || !segments[0].Equals("api", StringComparison.OrdinalIgnoreCase))
         {
-            return crud;
+            return (null, null);
         }
 
         var resourceSegment = segments[1];
-        string? resource = resourceSegment.ToLowerInvariant() switch
+        string? resource = resourceSegment switch
         {
-            "education-units" => "education-unit",
-            "education-classes" => "education-class",
-            "education-students" => segments.Length > 2 && segments[^1].Equals("enrollments", StringComparison.OrdinalIgnoreCase)
-                ? "education-student-enrollment"
-                : "education-student",
+            var s when s.Equals("education-units", StringComparison.OrdinalIgnoreCase) => "education-unit",
+            var s when s.Equals("education-classes", StringComparison.OrdinalIgnoreCase) => "education-class",
+            var s when s.Equals("education-students", StringComparison.OrdinalIgnoreCase) && segments.Length >= 4 && segments[3].Equals("enrollments", StringComparison.OrdinalIgnoreCase)
+                => "education-student-enrollment",
+            var s when s.Equals("education-students", StringComparison.OrdinalIgnoreCase) => "education-student",
             _ => null
         };
 
         if (resource is null)
         {
-            return crud;
+            return (null, null);
         }
 
-        long? resourceId = null;
-        for (var i = 2; i < segments.Length; i++)
+        var resourceId = TryGetRouteId(context);
+
+        if (resourceId is null && segments.Length >= 3 && long.TryParse(segments[2], out _))
         {
-            var segment = segments[i];
-            if (long.TryParse(segment, out var parsedId))
+            resourceId = segments[2];
+        }
+
+        if (resource == "education-student-enrollment" && resourceId is null && segments.Length >= 3)
+        {
+            var candidate = segments[2];
+            if (long.TryParse(candidate, out _))
             {
-                resourceId = parsedId;
-                break;
+                resourceId = candidate;
             }
         }
 
-        return resourceId.HasValue ? $"{crud}:{resource}:{resourceId.Value}" : $"{crud}:{resource}";
+        if (resourceId is null && verb.Equals("POST", StringComparison.OrdinalIgnoreCase))
+        {
+            resourceId = TryExtractIdFromLocation(context.Response.Headers);
+        }
+
+        return (resource, resourceId);
+    }
+
+    private static string? TryExtractIdFromLocation(IHeaderDictionary headers)
+    {
+        if (!headers.TryGetValue("Location", out var values) || values.Count == 0)
+        {
+            return null;
+        }
+
+        var location = values[0];
+        if (string.IsNullOrWhiteSpace(location))
+        {
+            return null;
+        }
+
+        if (Uri.TryCreate(location, UriKind.RelativeOrAbsolute, out var uri))
+        {
+            var path = uri.IsAbsoluteUri ? uri.AbsolutePath : uri.ToString();
+            var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var lastSegment = segments.LastOrDefault();
+            if (!string.IsNullOrWhiteSpace(lastSegment) && long.TryParse(lastSegment, out _))
+            {
+                return lastSegment;
+            }
+        }
+        else
+        {
+            var segments = location.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var lastSegment = segments.LastOrDefault();
+            if (!string.IsNullOrWhiteSpace(lastSegment) && long.TryParse(lastSegment, out _))
+            {
+                return lastSegment;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? TryGetRouteId(HttpContext context)
+    {
+        var keys = new[] { "id", "studentId", "classId", "unitId" };
+        foreach (var key in keys)
+        {
+            if (context.Request.RouteValues.TryGetValue(key, out var value) && value is not null)
+            {
+                var text = value.ToString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    return text;
+                }
+            }
+        }
+
+        return null;
     }
 
     private static string? GetIpAddress(HttpContext context)
