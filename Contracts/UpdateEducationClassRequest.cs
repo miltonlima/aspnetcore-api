@@ -6,5 +6,6 @@ public class UpdateEducationClassRequest
     public string Name { get; set; } = string.Empty;
     public string? Code { get; set; }
     public string? AcademicYear { get; set; }
+    public int? Capacity { get; set; }
     public string? Description { get; set; }
 }

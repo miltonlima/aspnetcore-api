@@ -21,12 +21,13 @@ public class EducationClassService
         Name = reader.GetString(2),
         Code = reader.IsDBNull(3) ? null : reader.GetString(3),
         AcademicYear = reader.IsDBNull(4) ? null : reader.GetString(4),
-        Description = reader.IsDBNull(5) ? null : reader.GetString(5),
-        CreatedAt = reader.GetDateTime(6),
-        EducationUnitName = reader.IsDBNull(7) ? null : reader.GetString(7)
+        Capacity = reader.IsDBNull(5) ? null : reader.GetInt32(5),
+        Description = reader.IsDBNull(6) ? null : reader.GetString(6),
+        CreatedAt = reader.GetDateTime(7),
+        EducationUnitName = reader.IsDBNull(8) ? null : reader.GetString(8)
     };
 
-    private static void ValidateRequest(string name, string? code, string? academicYear, string? description)
+    private static void ValidateRequest(string name, string? code, string? academicYear, string? description, int? capacity)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -52,17 +53,31 @@ public class EducationClassService
         {
             throw new ArgumentException("Descrição deve ter no máximo 1000 caracteres.");
         }
+
+        if (capacity.HasValue)
+        {
+            if (capacity.Value <= 0)
+            {
+                throw new ArgumentException("Capacidade deve ser um número positivo.");
+            }
+
+            if (capacity.Value > 100000)
+            {
+                throw new ArgumentException("Capacidade informada é muito alta. Utilize um valor de até 100000.");
+            }
+        }
     }
 
-    private static (string Name, string? Code, string? AcademicYear, string? Description) Normalize(string name, string? code, string? academicYear, string? description)
+    private static (string Name, string? Code, string? AcademicYear, string? Description, int? Capacity) Normalize(string name, string? code, string? academicYear, string? description, int? capacity)
     {
         var normalizedName = name.Trim();
         var normalizedCode = string.IsNullOrWhiteSpace(code) ? null : code.Trim().ToUpperInvariant();
         var normalizedAcademicYear = string.IsNullOrWhiteSpace(academicYear) ? null : academicYear.Trim();
         var normalizedDescription = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+        var normalizedCapacity = capacity;
 
-        ValidateRequest(normalizedName, normalizedCode, normalizedAcademicYear, normalizedDescription);
-        return (normalizedName, normalizedCode, normalizedAcademicYear, normalizedDescription);
+        ValidateRequest(normalizedName, normalizedCode, normalizedAcademicYear, normalizedDescription, normalizedCapacity);
+        return (normalizedName, normalizedCode, normalizedAcademicYear, normalizedDescription, normalizedCapacity);
     }
 
     private static async Task EnsureTableAsync(MySqlConnection connection, CancellationToken cancellationToken)
@@ -74,6 +89,7 @@ public class EducationClassService
                                     name VARCHAR(160) NOT NULL,
                                     code VARCHAR(60) NULL,
                                     academic_year VARCHAR(40) NULL,
+                                    capacity INT NULL,
                                     description TEXT NULL,
                                     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                                     CONSTRAINT fk_education_classes_unit FOREIGN KEY (education_unit_id)
@@ -83,6 +99,18 @@ public class EducationClassService
                                     CONSTRAINT uq_education_classes_code UNIQUE (code)
                                 );";
         await command.ExecuteNonQueryAsync(cancellationToken);
+
+        command.CommandText = @"SELECT COUNT(*)
+                                 FROM information_schema.COLUMNS
+                                 WHERE TABLE_SCHEMA = DATABASE()
+                                   AND TABLE_NAME = 'education_classes'
+                                   AND COLUMN_NAME = 'capacity';";
+        var hasCapacityColumn = await command.ExecuteScalarAsync(cancellationToken);
+        if (hasCapacityColumn is long capacityCount && capacityCount == 0)
+        {
+            command.CommandText = "ALTER TABLE education_classes ADD COLUMN capacity INT NULL AFTER academic_year;";
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     private static async Task EnsureUnitExistsAsync(MySqlConnection connection, long educationUnitId, CancellationToken cancellationToken)
@@ -107,13 +135,14 @@ public class EducationClassService
 
         await using var command = connection.CreateCommand();
         command.CommandText = @"SELECT c.id,
-                                        c.education_unit_id,
-                                        c.name,
-                                        c.code,
-                                        c.academic_year,
-                                        c.description,
-                                        c.created_at,
-                                        u.name AS unit_name
+                        c.education_unit_id,
+                        c.name,
+                        c.code,
+                        c.academic_year,
+                        c.capacity,
+                        c.description,
+                        c.created_at,
+                        u.name AS unit_name
                                  FROM education_classes c
                                  INNER JOIN education_units u ON u.id = c.education_unit_id
                                  ORDER BY u.name, c.name;";
@@ -137,13 +166,14 @@ public class EducationClassService
 
         await using var command = connection.CreateCommand();
         command.CommandText = @"SELECT c.id,
-                                        c.education_unit_id,
-                                        c.name,
-                                        c.code,
-                                        c.academic_year,
-                                        c.description,
-                                        c.created_at,
-                                        u.name AS unit_name
+                        c.education_unit_id,
+                        c.name,
+                        c.code,
+                        c.academic_year,
+                        c.capacity,
+                        c.description,
+                        c.created_at,
+                        u.name AS unit_name
                                  FROM education_classes c
                                  INNER JOIN education_units u ON u.id = c.education_unit_id
                                  WHERE c.id = @id;";
@@ -185,7 +215,7 @@ public class EducationClassService
             throw new ArgumentException("Unidade de ensino é obrigatória.");
         }
 
-        var (name, _, academicYear, description) = Normalize(request.Name, null, request.AcademicYear, request.Description);
+        var (name, _, academicYear, description, capacity) = Normalize(request.Name, null, request.AcademicYear, request.Description, request.Capacity);
 
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -199,12 +229,13 @@ public class EducationClassService
             var nextCode = await GenerateNextCodeAsync(connection, cancellationToken);
 
             await using var command = connection.CreateCommand();
-            command.CommandText = @"INSERT INTO education_classes (education_unit_id, name, code, academic_year, description)
-                                    VALUES (@educationUnitId, @name, @code, @academicYear, @description);";
+            command.CommandText = @"INSERT INTO education_classes (education_unit_id, name, code, academic_year, capacity, description)
+                                    VALUES (@educationUnitId, @name, @code, @academicYear, @capacity, @description);";
             command.Parameters.AddWithValue("@educationUnitId", request.EducationUnitId);
             command.Parameters.AddWithValue("@name", name);
             command.Parameters.AddWithValue("@code", nextCode);
             command.Parameters.AddWithValue("@academicYear", academicYear is null ? DBNull.Value : academicYear);
+            command.Parameters.AddWithValue("@capacity", capacity.HasValue ? capacity.Value : DBNull.Value);
             command.Parameters.AddWithValue("@description", description is null ? DBNull.Value : description);
 
             try
@@ -237,7 +268,7 @@ public class EducationClassService
             return null;
         }
 
-        var (name, normalizedExistingCode, academicYear, description) = Normalize(request.Name, existing.Code, request.AcademicYear, request.Description);
+        var (name, normalizedExistingCode, academicYear, description, capacity) = Normalize(request.Name, existing.Code, request.AcademicYear, request.Description, request.Capacity);
 
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -257,12 +288,14 @@ public class EducationClassService
                                         name = @name,
                                         code = @code,
                                         academic_year = @academicYear,
+                                        capacity = @capacity,
                                         description = @description
                                     WHERE id = @id;";
             command.Parameters.AddWithValue("@educationUnitId", request.EducationUnitId);
             command.Parameters.AddWithValue("@name", name);
             command.Parameters.AddWithValue("@code", codeToPersist);
             command.Parameters.AddWithValue("@academicYear", academicYear is null ? DBNull.Value : academicYear);
+            command.Parameters.AddWithValue("@capacity", capacity.HasValue ? capacity.Value : DBNull.Value);
             command.Parameters.AddWithValue("@description", description is null ? DBNull.Value : description);
             command.Parameters.AddWithValue("@id", id);
 
