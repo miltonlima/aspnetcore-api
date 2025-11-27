@@ -21,13 +21,15 @@ public class EducationClassService
         Name = reader.GetString(2),
         Code = reader.IsDBNull(3) ? null : reader.GetString(3),
         AcademicYear = reader.IsDBNull(4) ? null : reader.GetString(4),
-        Capacity = reader.IsDBNull(5) ? null : reader.GetInt32(5),
-        Description = reader.IsDBNull(6) ? null : reader.GetString(6),
-        CreatedAt = reader.GetDateTime(7),
-        EducationUnitName = reader.IsDBNull(8) ? null : reader.GetString(8)
+        StartDate = reader.IsDBNull(5) ? null : reader.GetDateTime(5),
+        EndDate = reader.IsDBNull(6) ? null : reader.GetDateTime(6),
+        Capacity = reader.IsDBNull(7) ? null : reader.GetInt32(7),
+        Description = reader.IsDBNull(8) ? null : reader.GetString(8),
+        CreatedAt = reader.GetDateTime(9),
+        EducationUnitName = reader.IsDBNull(10) ? null : reader.GetString(10)
     };
 
-    private static void ValidateRequest(string name, string? code, string? academicYear, string? description, int? capacity)
+    private static void ValidateRequest(string name, string? code, string? academicYear, string? description, int? capacity, DateTime? startDate, DateTime? endDate)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -66,18 +68,25 @@ public class EducationClassService
                 throw new ArgumentException("Capacidade informada é muito alta. Utilize um valor de até 100000.");
             }
         }
+
+        if (startDate.HasValue && endDate.HasValue && startDate.Value.Date > endDate.Value.Date)
+        {
+            throw new ArgumentException("Data de início não pode ser posterior à data de fim.");
+        }
     }
 
-    private static (string Name, string? Code, string? AcademicYear, string? Description, int? Capacity) Normalize(string name, string? code, string? academicYear, string? description, int? capacity)
+    private static (string Name, string? Code, string? AcademicYear, string? Description, int? Capacity, DateTime? StartDate, DateTime? EndDate) Normalize(string name, string? code, string? academicYear, string? description, int? capacity, DateTime? startDate, DateTime? endDate)
     {
         var normalizedName = name.Trim();
         var normalizedCode = string.IsNullOrWhiteSpace(code) ? null : code.Trim().ToUpperInvariant();
         var normalizedAcademicYear = string.IsNullOrWhiteSpace(academicYear) ? null : academicYear.Trim();
         var normalizedDescription = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
         var normalizedCapacity = capacity;
+        var normalizedStartDate = startDate?.Date;
+        var normalizedEndDate = endDate?.Date;
 
-        ValidateRequest(normalizedName, normalizedCode, normalizedAcademicYear, normalizedDescription, normalizedCapacity);
-        return (normalizedName, normalizedCode, normalizedAcademicYear, normalizedDescription, normalizedCapacity);
+        ValidateRequest(normalizedName, normalizedCode, normalizedAcademicYear, normalizedDescription, normalizedCapacity, normalizedStartDate, normalizedEndDate);
+        return (normalizedName, normalizedCode, normalizedAcademicYear, normalizedDescription, normalizedCapacity, normalizedStartDate, normalizedEndDate);
     }
 
     private static async Task EnsureTableAsync(MySqlConnection connection, CancellationToken cancellationToken)
@@ -89,6 +98,8 @@ public class EducationClassService
                                     name VARCHAR(160) NOT NULL,
                                     code VARCHAR(60) NULL,
                                     academic_year VARCHAR(40) NULL,
+                                    start_date DATE NULL,
+                                    end_date DATE NULL,
                                     capacity INT NULL,
                                     description TEXT NULL,
                                     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -109,6 +120,30 @@ public class EducationClassService
         if (hasCapacityColumn is long capacityCount && capacityCount == 0)
         {
             command.CommandText = "ALTER TABLE education_classes ADD COLUMN capacity INT NULL AFTER academic_year;";
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        command.CommandText = @"SELECT COUNT(*)
+                                 FROM information_schema.COLUMNS
+                                 WHERE TABLE_SCHEMA = DATABASE()
+                                   AND TABLE_NAME = 'education_classes'
+                                   AND COLUMN_NAME = 'start_date';";
+        var hasStartDateColumn = await command.ExecuteScalarAsync(cancellationToken);
+        if (hasStartDateColumn is long startCount && startCount == 0)
+        {
+            command.CommandText = "ALTER TABLE education_classes ADD COLUMN start_date DATE NULL AFTER academic_year;";
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        command.CommandText = @"SELECT COUNT(*)
+                                 FROM information_schema.COLUMNS
+                                 WHERE TABLE_SCHEMA = DATABASE()
+                                   AND TABLE_NAME = 'education_classes'
+                                   AND COLUMN_NAME = 'end_date';";
+        var hasEndDateColumn = await command.ExecuteScalarAsync(cancellationToken);
+        if (hasEndDateColumn is long endCount && endCount == 0)
+        {
+            command.CommandText = "ALTER TABLE education_classes ADD COLUMN end_date DATE NULL AFTER start_date;";
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
     }
@@ -139,6 +174,8 @@ public class EducationClassService
                         c.name,
                         c.code,
                         c.academic_year,
+                        c.start_date,
+                        c.end_date,
                         c.capacity,
                         c.description,
                         c.created_at,
@@ -170,6 +207,8 @@ public class EducationClassService
                         c.name,
                         c.code,
                         c.academic_year,
+                        c.start_date,
+                        c.end_date,
                         c.capacity,
                         c.description,
                         c.created_at,
@@ -215,7 +254,14 @@ public class EducationClassService
             throw new ArgumentException("Unidade de ensino é obrigatória.");
         }
 
-        var (name, _, academicYear, description, capacity) = Normalize(request.Name, null, request.AcademicYear, request.Description, request.Capacity);
+        var (name, _, academicYear, description, capacity, startDate, endDate) = Normalize(
+            request.Name,
+            null,
+            request.AcademicYear,
+            request.Description,
+            request.Capacity,
+            request.StartDate,
+            request.EndDate);
 
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -229,12 +275,14 @@ public class EducationClassService
             var nextCode = await GenerateNextCodeAsync(connection, cancellationToken);
 
             await using var command = connection.CreateCommand();
-            command.CommandText = @"INSERT INTO education_classes (education_unit_id, name, code, academic_year, capacity, description)
-                                    VALUES (@educationUnitId, @name, @code, @academicYear, @capacity, @description);";
+            command.CommandText = @"INSERT INTO education_classes (education_unit_id, name, code, academic_year, start_date, end_date, capacity, description)
+                                    VALUES (@educationUnitId, @name, @code, @academicYear, @startDate, @endDate, @capacity, @description);";
             command.Parameters.AddWithValue("@educationUnitId", request.EducationUnitId);
             command.Parameters.AddWithValue("@name", name);
             command.Parameters.AddWithValue("@code", nextCode);
             command.Parameters.AddWithValue("@academicYear", academicYear is null ? DBNull.Value : academicYear);
+            command.Parameters.AddWithValue("@startDate", startDate.HasValue ? startDate.Value : DBNull.Value);
+            command.Parameters.AddWithValue("@endDate", endDate.HasValue ? endDate.Value : DBNull.Value);
             command.Parameters.AddWithValue("@capacity", capacity.HasValue ? capacity.Value : DBNull.Value);
             command.Parameters.AddWithValue("@description", description is null ? DBNull.Value : description);
 
@@ -268,7 +316,14 @@ public class EducationClassService
             return null;
         }
 
-        var (name, normalizedExistingCode, academicYear, description, capacity) = Normalize(request.Name, existing.Code, request.AcademicYear, request.Description, request.Capacity ?? existing.Capacity);
+        var (name, normalizedExistingCode, academicYear, description, capacity, startDate, endDate) = Normalize(
+            request.Name,
+            existing.Code,
+            request.AcademicYear,
+            request.Description,
+            request.Capacity ?? existing.Capacity,
+            request.StartDate,
+            request.EndDate);
 
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -288,6 +343,8 @@ public class EducationClassService
                                         name = @name,
                                         code = @code,
                                         academic_year = @academicYear,
+                                        start_date = @startDate,
+                                        end_date = @endDate,
                                         capacity = @capacity,
                                         description = @description
                                     WHERE id = @id;";
@@ -295,6 +352,8 @@ public class EducationClassService
             command.Parameters.AddWithValue("@name", name);
             command.Parameters.AddWithValue("@code", codeToPersist);
             command.Parameters.AddWithValue("@academicYear", academicYear is null ? DBNull.Value : academicYear);
+            command.Parameters.AddWithValue("@startDate", startDate.HasValue ? startDate.Value : DBNull.Value);
+            command.Parameters.AddWithValue("@endDate", endDate.HasValue ? endDate.Value : DBNull.Value);
             command.Parameters.AddWithValue("@capacity", capacity.HasValue ? capacity.Value : DBNull.Value);
             command.Parameters.AddWithValue("@description", description is null ? DBNull.Value : description);
             command.Parameters.AddWithValue("@id", id);

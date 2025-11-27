@@ -1,3 +1,4 @@
+using System;
 using aspnetcore_api.Models;
 
 namespace aspnetcore_api.Contracts;
@@ -10,6 +11,8 @@ public class EducationClassResponse
     public string Name { get; init; } = string.Empty;
     public string? Code { get; init; }
     public string? AcademicYear { get; init; }
+    public DateTime? StartDate { get; init; }
+    public DateTime? EndDate { get; init; }
     public int? Capacity { get; init; }
     public string? Description { get; init; }
     public DateTime CreatedAt { get; init; }
@@ -22,6 +25,8 @@ public class EducationClassResponse
         Name = entity.Name,
         Code = entity.Code,
         AcademicYear = entity.AcademicYear,
+        StartDate = entity.StartDate,
+        EndDate = entity.EndDate,
         Capacity = entity.Capacity,
         Description = entity.Description,
         CreatedAt = entity.CreatedAt

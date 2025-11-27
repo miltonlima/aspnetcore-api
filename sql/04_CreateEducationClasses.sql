@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS education_classes (
     name VARCHAR(160) NOT NULL,
     code VARCHAR(60) NULL,
     academic_year VARCHAR(40) NULL,
+    start_date DATE NULL,
+    end_date DATE NULL,
     capacity INT NULL,
     description TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
