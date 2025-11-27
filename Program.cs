@@ -59,6 +59,7 @@ builder.Services.AddScoped<EducationClassService>();
 builder.Services.AddScoped<EducationStudentService>();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<RequestLogService>();
+builder.Services.AddScoped<EducationGradeService>();
 
 builder.Services.AddAuthentication(options =>
 {
@@ -359,6 +360,41 @@ app.MapDelete("/api/education-classes/{id:long}", async (long id, EducationClass
 .WithName("DeleteEducationClass")
 .RequireAuthorization()
 .Produces(StatusCodes.Status204NoContent)
+.Produces(StatusCodes.Status404NotFound);
+
+app.MapGet("/api/education-classes/{classId:long}/grades", async (long classId, EducationGradeService service, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var grades = await service.GetGradesForClassAsync(classId, cancellationToken);
+        return Results.Ok(grades);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+})
+.WithName("GetEducationClassGrades")
+.RequireAuthorization()
+.Produces<IEnumerable<EducationStudentGradeResponse>>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status400BadRequest);
+
+app.MapPut("/api/education-classes/{classId:long}/grades/{studentId:long}", async (long classId, long studentId, UpdateEducationStudentGradeRequest request, EducationGradeService service, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var result = await service.UpsertGradeAsync(classId, studentId, request, cancellationToken);
+        return result is null ? Results.NotFound() : Results.Ok(result);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+})
+.WithName("UpsertEducationStudentGrade")
+.RequireAuthorization()
+.Produces<EducationStudentGradeResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status400BadRequest)
 .Produces(StatusCodes.Status404NotFound);
 
 app.MapGet("/api/education-students", async (EducationStudentService service, CancellationToken cancellationToken) =>

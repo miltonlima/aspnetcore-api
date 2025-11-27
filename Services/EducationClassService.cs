@@ -268,7 +268,7 @@ public class EducationClassService
             return null;
         }
 
-        var (name, normalizedExistingCode, academicYear, description, capacity) = Normalize(request.Name, existing.Code, request.AcademicYear, request.Description, request.Capacity);
+        var (name, normalizedExistingCode, academicYear, description, capacity) = Normalize(request.Name, existing.Code, request.AcademicYear, request.Description, request.Capacity ?? existing.Capacity);
 
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
