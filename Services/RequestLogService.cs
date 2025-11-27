@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Security.Claims;
 using System.Threading;
@@ -7,11 +8,13 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MySqlConnector;
+using System.Text.Json;
 
 namespace aspnetcore_api.Services;
 
 public class RequestLogService
 {
+    public const string ResponseBodyItemKey = "__request_log_response_body";
     private const int MaxMethodLength = 16;
     private const int MaxPathLength = 512;
     private const int MaxEmailLength = 320;
@@ -218,7 +221,7 @@ public class RequestLogService
 
         if (resourceId is null)
         {
-            resourceId = TryExtractIdFromLocation(context.Response.Headers);
+            resourceId = TryExtractIdFromLocation(context.Response.Headers) ?? TryExtractIdFromResponse(context);
         }
 
         return resourceId is null
@@ -266,12 +269,6 @@ public class RequestLogService
                 resourceId = candidate;
             }
         }
-
-        if (resourceId is null && verb.Equals("POST", StringComparison.OrdinalIgnoreCase))
-        {
-            resourceId = TryExtractIdFromLocation(context.Response.Headers);
-        }
-
         return (resource, resourceId);
     }
 
@@ -309,6 +306,80 @@ public class RequestLogService
         }
 
         return null;
+    }
+
+    private static string? TryExtractIdFromResponse(HttpContext context)
+    {
+        if (!context.Items.TryGetValue(ResponseBodyItemKey, out var itemValue) || itemValue is not string responseText || string.IsNullOrWhiteSpace(responseText))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(responseText);
+            var root = document.RootElement;
+            if (root.ValueKind == JsonValueKind.Object && TryReadIdFromElement(root, out var identifier))
+            {
+                return identifier;
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return null;
+    }
+
+    private static bool TryReadIdFromElement(JsonElement element, out string? identifier)
+    {
+        if (TryReadIdProperty(element, "id", out identifier))
+        {
+            return true;
+        }
+
+        if (TryReadIdProperty(element, "Id", out identifier))
+        {
+            return true;
+        }
+
+        identifier = null;
+        return false;
+    }
+
+    private static bool TryReadIdProperty(JsonElement element, string propertyName, out string? identifier)
+    {
+        if (!element.TryGetProperty(propertyName, out var candidate))
+        {
+            identifier = null;
+            return false;
+        }
+
+        switch (candidate.ValueKind)
+        {
+            case JsonValueKind.Number when candidate.TryGetInt64(out var longValue):
+                identifier = longValue.ToString(CultureInfo.InvariantCulture);
+                return true;
+            case JsonValueKind.Number:
+                if (candidate.TryGetDecimal(out var decimalValue))
+                {
+                    identifier = decimalValue.ToString(CultureInfo.InvariantCulture);
+                    return true;
+                }
+                break;
+            case JsonValueKind.String:
+                var textValue = candidate.GetString();
+                if (!string.IsNullOrWhiteSpace(textValue))
+                {
+                    identifier = textValue;
+                    return true;
+                }
+                break;
+        }
+
+        identifier = null;
+        return false;
     }
 
     private static string? TryGetRouteId(HttpContext context)

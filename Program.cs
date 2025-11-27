@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Security.Claims;
 using System.Text;
@@ -108,11 +109,49 @@ app.UseAuthorization();
 app.Use(async (context, next) =>
 {
     var stopwatch = Stopwatch.StartNew();
-    await next();
-    stopwatch.Stop();
 
-    var loggerService = context.RequestServices.GetRequiredService<RequestLogService>();
-    await loggerService.LogRequestAsync(context, stopwatch.Elapsed, context.RequestAborted);
+    Stream? originalBodyStream = null;
+    MemoryStream? bufferingStream = null;
+    var shouldCaptureResponse = context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase)
+        && string.Equals(context.Request.Method, "POST", StringComparison.OrdinalIgnoreCase);
+
+    if (shouldCaptureResponse)
+    {
+        originalBodyStream = context.Response.Body;
+        bufferingStream = new MemoryStream();
+        context.Response.Body = bufferingStream;
+    }
+
+    try
+    {
+        await next();
+    }
+    finally
+    {
+        stopwatch.Stop();
+
+        if (bufferingStream is not null && originalBodyStream is not null)
+        {
+            try
+            {
+                bufferingStream.Seek(0, SeekOrigin.Begin);
+                using var reader = new StreamReader(bufferingStream, Encoding.UTF8, leaveOpen: true);
+                var responseText = await reader.ReadToEndAsync();
+                context.Items[RequestLogService.ResponseBodyItemKey] = responseText;
+
+                bufferingStream.Seek(0, SeekOrigin.Begin);
+                await bufferingStream.CopyToAsync(originalBodyStream, context.RequestAborted);
+            }
+            finally
+            {
+                context.Response.Body = originalBodyStream;
+                await bufferingStream.DisposeAsync();
+            }
+        }
+
+        var loggerService = context.RequestServices.GetRequiredService<RequestLogService>();
+        await loggerService.LogRequestAsync(context, stopwatch.Elapsed, context.RequestAborted);
+    }
 });
 
 app.UseDefaultFiles();
