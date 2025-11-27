@@ -15,6 +15,33 @@ using MySqlConnector;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddControllers();
+
+// CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend",
+        policy =>
+        {
+            policy.WithOrigins("https://reactvite-app.pages.dev")
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials();
+        });
+});
+
+var app = builder.Build();
+
+app.UseHttpsRedirection();
+
+// Ativar CORS
+app.UseCors("AllowFrontend");
+
+app.MapControllers();
+
+app.Run();
+
+
 // Add services to the container.
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
