@@ -13,6 +13,7 @@ public class EducationClassResponse
     public string? AcademicYear { get; init; }
     public DateTime? StartDate { get; init; }
     public DateTime? EndDate { get; init; }
+    public string? ScheduledTime { get; init; }
     public int? Capacity { get; init; }
     public string? Description { get; init; }
     public DateTime CreatedAt { get; init; }
@@ -27,6 +28,7 @@ public class EducationClassResponse
         AcademicYear = entity.AcademicYear,
         StartDate = entity.StartDate,
         EndDate = entity.EndDate,
+        ScheduledTime = entity.ScheduledTime?.ToString(@"hh\:mm"),
         Capacity = entity.Capacity,
         Description = entity.Description,
         CreatedAt = entity.CreatedAt

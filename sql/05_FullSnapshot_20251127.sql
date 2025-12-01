@@ -52,6 +52,7 @@ CREATE TABLE education_classes (
     academic_year VARCHAR(40) NULL,
     start_date DATE NULL,
     end_date DATE NULL,
+    scheduled_time TIME NULL,
     capacity INT NULL,
     description TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

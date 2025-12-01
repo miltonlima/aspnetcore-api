@@ -1,3 +1,4 @@
+using System.Globalization;
 using aspnetcore_api.Contracts;
 using aspnetcore_api.Models;
 using MySqlConnector;
@@ -23,13 +24,14 @@ public class EducationClassService
         AcademicYear = reader.IsDBNull(4) ? null : reader.GetString(4),
         StartDate = reader.IsDBNull(5) ? null : reader.GetDateTime(5),
         EndDate = reader.IsDBNull(6) ? null : reader.GetDateTime(6),
-        Capacity = reader.IsDBNull(7) ? null : reader.GetInt32(7),
-        Description = reader.IsDBNull(8) ? null : reader.GetString(8),
-        CreatedAt = reader.GetDateTime(9),
-        EducationUnitName = reader.IsDBNull(10) ? null : reader.GetString(10)
+        ScheduledTime = reader.IsDBNull(7) ? null : reader.GetTimeSpan(7),
+        Capacity = reader.IsDBNull(8) ? null : reader.GetInt32(8),
+        Description = reader.IsDBNull(9) ? null : reader.GetString(9),
+        CreatedAt = reader.GetDateTime(10),
+        EducationUnitName = reader.IsDBNull(11) ? null : reader.GetString(11)
     };
 
-    private static void ValidateRequest(string name, string? code, string? academicYear, string? description, int? capacity, DateTime? startDate, DateTime? endDate)
+    private static void ValidateRequest(string name, string? code, string? academicYear, string? description, int? capacity, DateTime? startDate, DateTime? endDate, TimeSpan? scheduleTime)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -73,9 +75,17 @@ public class EducationClassService
         {
             throw new ArgumentException("Data de início não pode ser posterior à data de fim.");
         }
+
+        if (scheduleTime.HasValue)
+        {
+            if (scheduleTime.Value < TimeSpan.Zero || scheduleTime.Value >= TimeSpan.FromHours(24))
+            {
+                throw new ArgumentException("Horário informado é inválido.");
+            }
+        }
     }
 
-    private static (string Name, string? Code, string? AcademicYear, string? Description, int? Capacity, DateTime? StartDate, DateTime? EndDate) Normalize(string name, string? code, string? academicYear, string? description, int? capacity, DateTime? startDate, DateTime? endDate)
+    private static (string Name, string? Code, string? AcademicYear, string? Description, int? Capacity, DateTime? StartDate, DateTime? EndDate, TimeSpan? ScheduleTime) Normalize(string name, string? code, string? academicYear, string? description, int? capacity, DateTime? startDate, DateTime? endDate, TimeSpan? scheduleTime)
     {
         var normalizedName = name.Trim();
         var normalizedCode = string.IsNullOrWhiteSpace(code) ? null : code.Trim().ToUpperInvariant();
@@ -84,9 +94,28 @@ public class EducationClassService
         var normalizedCapacity = capacity;
         var normalizedStartDate = startDate?.Date;
         var normalizedEndDate = endDate?.Date;
+        var normalizedScheduleTime = scheduleTime;
 
-        ValidateRequest(normalizedName, normalizedCode, normalizedAcademicYear, normalizedDescription, normalizedCapacity, normalizedStartDate, normalizedEndDate);
-        return (normalizedName, normalizedCode, normalizedAcademicYear, normalizedDescription, normalizedCapacity, normalizedStartDate, normalizedEndDate);
+        ValidateRequest(normalizedName, normalizedCode, normalizedAcademicYear, normalizedDescription, normalizedCapacity, normalizedStartDate, normalizedEndDate, normalizedScheduleTime);
+        return (normalizedName, normalizedCode, normalizedAcademicYear, normalizedDescription, normalizedCapacity, normalizedStartDate, normalizedEndDate, normalizedScheduleTime);
+    }
+
+    private static TimeSpan? ParseScheduleTime(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        var formats = new[] { @"hh\:mm", @"hh\:mm\:ss" };
+
+        if (TimeSpan.TryParseExact(trimmed, formats, CultureInfo.InvariantCulture, out var parsed))
+        {
+            return parsed;
+        }
+
+        throw new ArgumentException("Horário informado é inválido. Utilize o formato HH:mm.");
     }
 
     private static async Task EnsureTableAsync(MySqlConnection connection, CancellationToken cancellationToken)
@@ -100,6 +129,7 @@ public class EducationClassService
                                     academic_year VARCHAR(40) NULL,
                                     start_date DATE NULL,
                                     end_date DATE NULL,
+                                    scheduled_time TIME NULL,
                                     capacity INT NULL,
                                     description TEXT NULL,
                                     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -146,6 +176,18 @@ public class EducationClassService
             command.CommandText = "ALTER TABLE education_classes ADD COLUMN end_date DATE NULL AFTER start_date;";
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
+
+        command.CommandText = @"SELECT COUNT(*)
+                                 FROM information_schema.COLUMNS
+                                 WHERE TABLE_SCHEMA = DATABASE()
+                                   AND TABLE_NAME = 'education_classes'
+                                   AND COLUMN_NAME = 'scheduled_time';";
+        var hasScheduledTimeColumn = await command.ExecuteScalarAsync(cancellationToken);
+        if (hasScheduledTimeColumn is long scheduledCount && scheduledCount == 0)
+        {
+            command.CommandText = "ALTER TABLE education_classes ADD COLUMN scheduled_time TIME NULL AFTER end_date;";
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     private static async Task EnsureUnitExistsAsync(MySqlConnection connection, long educationUnitId, CancellationToken cancellationToken)
@@ -176,6 +218,7 @@ public class EducationClassService
                         c.academic_year,
                         c.start_date,
                         c.end_date,
+                        c.scheduled_time,
                         c.capacity,
                         c.description,
                         c.created_at,
@@ -209,6 +252,7 @@ public class EducationClassService
                         c.academic_year,
                         c.start_date,
                         c.end_date,
+                        c.scheduled_time,
                         c.capacity,
                         c.description,
                         c.created_at,
@@ -254,14 +298,17 @@ public class EducationClassService
             throw new ArgumentException("Unidade de ensino é obrigatória.");
         }
 
-        var (name, _, academicYear, description, capacity, startDate, endDate) = Normalize(
+        var requestedScheduleTime = ParseScheduleTime(request.ScheduleTime);
+
+        var (name, _, academicYear, description, capacity, startDate, endDate, scheduleTime) = Normalize(
             request.Name,
             null,
             request.AcademicYear,
             request.Description,
             request.Capacity,
             request.StartDate,
-            request.EndDate);
+            request.EndDate,
+            requestedScheduleTime);
 
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -275,14 +322,15 @@ public class EducationClassService
             var nextCode = await GenerateNextCodeAsync(connection, cancellationToken);
 
             await using var command = connection.CreateCommand();
-            command.CommandText = @"INSERT INTO education_classes (education_unit_id, name, code, academic_year, start_date, end_date, capacity, description)
-                                    VALUES (@educationUnitId, @name, @code, @academicYear, @startDate, @endDate, @capacity, @description);";
+            command.CommandText = @"INSERT INTO education_classes (education_unit_id, name, code, academic_year, start_date, end_date, scheduled_time, capacity, description)
+                                    VALUES (@educationUnitId, @name, @code, @academicYear, @startDate, @endDate, @scheduledTime, @capacity, @description);";
             command.Parameters.AddWithValue("@educationUnitId", request.EducationUnitId);
             command.Parameters.AddWithValue("@name", name);
             command.Parameters.AddWithValue("@code", nextCode);
             command.Parameters.AddWithValue("@academicYear", academicYear is null ? DBNull.Value : academicYear);
             command.Parameters.AddWithValue("@startDate", startDate.HasValue ? startDate.Value : DBNull.Value);
             command.Parameters.AddWithValue("@endDate", endDate.HasValue ? endDate.Value : DBNull.Value);
+            command.Parameters.AddWithValue("@scheduledTime", scheduleTime.HasValue ? scheduleTime.Value : DBNull.Value);
             command.Parameters.AddWithValue("@capacity", capacity.HasValue ? capacity.Value : DBNull.Value);
             command.Parameters.AddWithValue("@description", description is null ? DBNull.Value : description);
 
@@ -316,14 +364,19 @@ public class EducationClassService
             return null;
         }
 
-        var (name, normalizedExistingCode, academicYear, description, capacity, startDate, endDate) = Normalize(
+        var scheduleTime = request.ScheduleTime is null
+            ? existing.ScheduledTime
+            : ParseScheduleTime(request.ScheduleTime);
+
+        var (name, normalizedExistingCode, academicYear, description, capacity, startDate, endDate, normalizedScheduleTime) = Normalize(
             request.Name,
             existing.Code,
             request.AcademicYear,
             request.Description,
             request.Capacity ?? existing.Capacity,
             request.StartDate,
-            request.EndDate);
+            request.EndDate,
+            scheduleTime);
 
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -345,6 +398,7 @@ public class EducationClassService
                                         academic_year = @academicYear,
                                         start_date = @startDate,
                                         end_date = @endDate,
+                                        scheduled_time = @scheduledTime,
                                         capacity = @capacity,
                                         description = @description
                                     WHERE id = @id;";
@@ -354,6 +408,7 @@ public class EducationClassService
             command.Parameters.AddWithValue("@academicYear", academicYear is null ? DBNull.Value : academicYear);
             command.Parameters.AddWithValue("@startDate", startDate.HasValue ? startDate.Value : DBNull.Value);
             command.Parameters.AddWithValue("@endDate", endDate.HasValue ? endDate.Value : DBNull.Value);
+            command.Parameters.AddWithValue("@scheduledTime", normalizedScheduleTime.HasValue ? normalizedScheduleTime.Value : DBNull.Value);
             command.Parameters.AddWithValue("@capacity", capacity.HasValue ? capacity.Value : DBNull.Value);
             command.Parameters.AddWithValue("@description", description is null ? DBNull.Value : description);
             command.Parameters.AddWithValue("@id", id);
