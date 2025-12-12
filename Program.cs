@@ -170,6 +170,7 @@ app.UseStaticFiles();
 // Encaminha a raiz para a interface do Swagger em modo API-first.
 app.MapGet("/", () => Results.Redirect("/swagger", permanent: false));
 
+// Endpoint de autenticação responsável por emitir JWT após validar credenciais.
 app.MapPost("/api/login", async (LoginRequest request, RegistrationService registrationService, TokenService tokenService, CancellationToken cancellationToken) =>
 {
     var identifier = request.Email ?? request.Username;
@@ -192,6 +193,7 @@ app.MapPost("/api/login", async (LoginRequest request, RegistrationService regis
 
 app.MapGet("/api/users/me", async (ClaimsPrincipal user, RegistrationService registrationService, CancellationToken cancellationToken) =>
 {
+    // Recupera os dados do usuário autenticado usando o identificador do token.
     var userIdValue = user.FindFirstValue(ClaimTypes.NameIdentifier);
     if (!long.TryParse(userIdValue, out var userId))
     {
@@ -242,6 +244,7 @@ app.MapPut("/api/users/me", async (ClaimsPrincipal user, UpdateUserProfileReques
 
 app.MapGet("/api/education-units", async (EducationUnitService service, CancellationToken cancellationToken) =>
 {
+    // Lista todas as unidades educacionais cadastradas para consumo do frontend.
     var units = await service.ListAsync(cancellationToken);
     var responses = units.Select(EducationUnitResponse.FromEntity);
     return Results.Ok(responses);
@@ -275,6 +278,7 @@ app.MapPost("/api/education-units", async (CreateEducationUnitRequest request, E
 
 app.MapPut("/api/education-units/{id:long}", async (long id, UpdateEducationUnitRequest request, EducationUnitService service, CancellationToken cancellationToken) =>
 {
+    // Atualiza atributos da unidade conforme dados enviados pelo cliente.
     try
     {
         var updated = await service.UpdateAsync(id, request, cancellationToken);
@@ -300,6 +304,7 @@ app.MapPut("/api/education-units/{id:long}", async (long id, UpdateEducationUnit
 
 app.MapDelete("/api/education-units/{id:long}", async (long id, EducationUnitService service, CancellationToken cancellationToken) =>
 {
+    // Remove a unidade e responde conforme o resultado da operação.
     var deleted = await service.DeleteAsync(id, cancellationToken);
     return deleted ? Results.NoContent() : Results.NotFound();
 })
@@ -310,6 +315,7 @@ app.MapDelete("/api/education-units/{id:long}", async (long id, EducationUnitSer
 
 app.MapGet("/api/education-classes", async (EducationClassService service, CancellationToken cancellationToken) =>
 {
+    // Entrega as turmas cadastradas para construção das listagens.
     var classes = await service.ListAsync(cancellationToken);
     var responses = classes.Select(EducationClassResponse.FromEntity);
     return Results.Ok(responses);
@@ -343,6 +349,7 @@ app.MapPost("/api/education-classes", async (CreateEducationClassRequest request
 
 app.MapPut("/api/education-classes/{id:long}", async (long id, UpdateEducationClassRequest request, EducationClassService service, CancellationToken cancellationToken) =>
 {
+    // Atualiza dados da turma com base nas informações enviadas pelo cliente.
     try
     {
         var updated = await service.UpdateAsync(id, request, cancellationToken);
@@ -368,6 +375,7 @@ app.MapPut("/api/education-classes/{id:long}", async (long id, UpdateEducationCl
 
 app.MapDelete("/api/education-classes/{id:long}", async (long id, EducationClassService service, CancellationToken cancellationToken) =>
 {
+    // Remove a turma escolhida, considerando vínculos existentes.
     var deleted = await service.DeleteAsync(id, cancellationToken);
     return deleted ? Results.NoContent() : Results.NotFound();
 })
@@ -378,6 +386,7 @@ app.MapDelete("/api/education-classes/{id:long}", async (long id, EducationClass
 
 app.MapGet("/api/education-classes/{classId:long}/grades", async (long classId, EducationGradeService service, CancellationToken cancellationToken) =>
 {
+    // Busca as notas lançadas para todos os alunos da turma.
     try
     {
         var grades = await service.GetGradesForClassAsync(classId, cancellationToken);
@@ -395,6 +404,7 @@ app.MapGet("/api/education-classes/{classId:long}/grades", async (long classId, 
 
 app.MapPut("/api/education-classes/{classId:long}/grades/{studentId:long}", async (long classId, long studentId, UpdateEducationStudentGradeRequest request, EducationGradeService service, CancellationToken cancellationToken) =>
 {
+    // Inclui ou atualiza a nota do aluno dentro da turma informada.
     try
     {
         var result = await service.UpsertGradeAsync(classId, studentId, request, cancellationToken);
@@ -413,6 +423,7 @@ app.MapPut("/api/education-classes/{classId:long}/grades/{studentId:long}", asyn
 
 app.MapGet("/api/education-students", async (EducationStudentService service, CancellationToken cancellationToken) =>
 {
+    // Retorna a lista paginada de alunos cadastrados no sistema.
     var students = await service.ListAsync(cancellationToken);
     var responses = students.Select(EducationStudentResponse.FromEntity);
     return Results.Ok(responses);
@@ -423,6 +434,7 @@ app.MapGet("/api/education-students", async (EducationStudentService service, Ca
 
 app.MapGet("/api/education-students/{id:long}", async (long id, EducationStudentService service, CancellationToken cancellationToken) =>
 {
+    // Localiza os detalhes de um aluno específico pelo identificador.
     var student = await service.GetByIdAsync(id, cancellationToken);
     return student is null
         ? Results.NotFound()
@@ -461,6 +473,7 @@ app.MapPost("/api/education-students", async (CreateEducationStudentRequest requ
 
 app.MapPut("/api/education-students/{id:long}", async (long id, UpdateEducationStudentRequest request, EducationStudentService service, CancellationToken cancellationToken) =>
 {
+    // Atualiza cadastro do aluno preservando regras de unicidade de CPF e matrícula.
     try
     {
         var updated = await service.UpdateAsync(id, request, cancellationToken);
@@ -489,6 +502,7 @@ app.MapPut("/api/education-students/{id:long}", async (long id, UpdateEducationS
 
 app.MapDelete("/api/education-students/{id:long}", async (long id, EducationStudentService service, CancellationToken cancellationToken) =>
 {
+    // Exclui o aluno solicitado e retorna se a operação foi concluída.
     var deleted = await service.DeleteAsync(id, cancellationToken);
     return deleted ? Results.NoContent() : Results.NotFound();
 })
@@ -530,6 +544,7 @@ app.MapPost("/api/education-students/{id:long}/enrollments", async (long id, Cre
 
 app.MapDelete("/api/education-students/{studentId:long}/enrollments/{classId:long}", async (long studentId, long classId, EducationStudentService service, CancellationToken cancellationToken) =>
 {
+    // Cancela a matrícula do aluno na turma indicada.
     var student = await service.UnenrollAsync(studentId, classId, cancellationToken);
     return student is null
         ? Results.NotFound()
@@ -542,6 +557,7 @@ app.MapDelete("/api/education-students/{studentId:long}/enrollments/{classId:lon
 
 app.MapPut("/api/users/me/password", async (ClaimsPrincipal user, UpdatePasswordRequest request, RegistrationService registrationService, CancellationToken cancellationToken) =>
 {
+    // Valida a senha atual e aplica a troca por uma nova senha segura.
     var userIdValue = user.FindFirstValue(ClaimTypes.NameIdentifier);
     if (!long.TryParse(userIdValue, out var userId))
     {
@@ -579,6 +595,7 @@ app.MapPut("/api/users/me/password", async (ClaimsPrincipal user, UpdatePassword
 
 app.MapGet("/api/registrations", async (RegistrationService service, CancellationToken cancellationToken) =>
 {
+    // Lista todos os usuários cadastrados, respeitando filtros aplicados na camada de serviço.
     var entities = await service.ListAsync(cancellationToken);
     var responses = entities.Select(RegistrationResponse.FromEntity);
     return Results.Ok(responses);
@@ -612,6 +629,7 @@ app.MapPost("/api/registrations", async (RegistrationRequest request, Registrati
 
 app.MapPut("/api/registrations/{id:long}", async Task<IResult> (long id, UpdateRegistrationRequest request, RegistrationService service, CancellationToken cancellationToken) =>
 {
+    // Atualiza dados cadastrais do usuário escolhido.
     try
     {
         var updated = await service.UpdateAsync(id, request, cancellationToken);
@@ -636,6 +654,7 @@ app.MapPut("/api/registrations/{id:long}", async Task<IResult> (long id, UpdateR
 
 app.MapDelete("/api/registrations/{id:long}", async Task<IResult> (long id, CancellationToken cancellationToken) =>
 {
+    // Remove o registro diretamente no banco, garantindo compatibilidade com o schema atual.
     try
     {
         var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
