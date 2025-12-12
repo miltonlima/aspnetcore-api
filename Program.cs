@@ -92,6 +92,7 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
+// Constrói a aplicação com todas as dependências registradas.
 var app = builder.Build();
 
 // Configura o pipeline de requisições HTTP.
@@ -104,6 +105,7 @@ if (app.Environment.IsDevelopment())
 var httpsPort = builder.Configuration.GetValue<int?>("ASPNETCORE_HTTPS_PORT");
 if (httpsPort.HasValue)
 {
+    // Mantém redirecionamento automático para HTTPS quando configurado.
     app.UseHttpsRedirection();
 }
 
@@ -161,9 +163,11 @@ app.Use(async (context, next) =>
     }
 });
 
+// Expõe arquivos estáticos e index.html, permitindo servir o build do frontend.
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+// Encaminha a raiz para a interface do Swagger em modo API-first.
 app.MapGet("/", () => Results.Redirect("/swagger", permanent: false));
 
 app.MapPost("/api/login", async (LoginRequest request, RegistrationService registrationService, TokenService tokenService, CancellationToken cancellationToken) =>
@@ -673,6 +677,7 @@ var summaries = new[]
     "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
 };
 
+// Endpoint de exemplo gerado pelo template: mantém para smoke tests locais.
 app.MapGet("/weatherforecast", () =>
 {
     var forecast =  Enumerable.Range(1, 5).Select(index =>
@@ -687,6 +692,7 @@ app.MapGet("/weatherforecast", () =>
 })
 .WithName("GetWeatherForecast");
 
+// Redireciona qualquer rota não tratada para o SPA (index.html).
 app.MapFallbackToFile("index.html");
 
 app.Run();
