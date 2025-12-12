@@ -13,14 +13,16 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using MySqlConnector;
 
+// Inicializa o host da minimal API e carrega configurações e serviços.
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// Adiciona serviços ao contêiner de injeção.
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
+    // Emite payloads em camelCase e ignora valores nulos para alinhar com o frontend.
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
     options.SerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
     options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
@@ -42,6 +44,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
+        // Libera as origens configuradas para usar qualquer verbo ou cabeçalho.
         policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod();
@@ -49,6 +52,7 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddScoped<MySqlConnection>(_ => 
+    // Resolve uma conexão MySQL por requisição via injeção de dependência.
     new MySqlConnection(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddScoped<RegistrationService>();
@@ -73,6 +77,7 @@ builder.Services.AddAuthentication(options =>
     {
         throw new InvalidOperationException("Jwt:Key configuration is missing.");
     }
+    // Valida os JWTs recebidos contra emissor, audiência e chave de assinatura.
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
@@ -89,7 +94,7 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// Configura o pipeline de requisições HTTP.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -150,6 +155,7 @@ app.Use(async (context, next) =>
             }
         }
 
+        // Persiste o log completo da requisição (tempo e payload) para auditoria.
         var loggerService = context.RequestServices.GetRequiredService<RequestLogService>();
         await loggerService.LogRequestAsync(context, stopwatch.Elapsed, context.RequestAborted);
     }
@@ -168,6 +174,7 @@ app.MapPost("/api/login", async (LoginRequest request, RegistrationService regis
         return Results.BadRequest(new { message = "Email (or username) and password are required." });
     }
 
+    // Localiza o usuário e confere a senha hash antes de emitir o JWT.
     var user = await registrationService.GetUserByEmailAsync(identifier, cancellationToken);
 
     if (user is null || user.Password == null || !registrationService.VerifyPassword(request.Password, user.Password))
@@ -211,6 +218,7 @@ app.MapPut("/api/users/me", async (ClaimsPrincipal user, UpdateUserProfileReques
 
     try
     {
+        // Delegar a validação e a persistência ao serviço de cadastros.
         var updated = await registrationService.UpdateUserProfileAsync(userId, request, cancellationToken);
         return updated is null
             ? Results.NotFound()
@@ -242,6 +250,7 @@ app.MapPost("/api/education-units", async (CreateEducationUnitRequest request, E
 {
     try
     {
+        // Cria a unidade e retorna 201 apontando para o recurso.
         var created = await service.CreateAsync(request, cancellationToken);
         return Results.Created($"/api/education-units/{created.Id}", EducationUnitResponse.FromEntity(created));
     }
@@ -309,6 +318,7 @@ app.MapPost("/api/education-classes", async (CreateEducationClassRequest request
 {
     try
     {
+        // Garante que o código da turma permaneça único antes de persistir.
         var created = await service.CreateAsync(request, cancellationToken);
         return Results.Created($"/api/education-classes/{created.Id}", EducationClassResponse.FromEntity(created));
     }
@@ -423,6 +433,7 @@ app.MapPost("/api/education-students", async (CreateEducationStudentRequest requ
 {
     try
     {
+        // Persiste a matrícula e retorna o DTO esperado pelo frontend.
         var created = await service.CreateAsync(request, cancellationToken);
         return Results.Created($"/api/education-students/{created.Id}", EducationStudentResponse.FromEntity(created));
     }
@@ -491,6 +502,7 @@ app.MapPost("/api/education-students/{id:long}/enrollments", async (long id, Cre
 
     try
     {
+        // Vincula o aluno à turma solicitada, evitando duplicidades na camada de serviço.
         var student = await service.EnrollAsync(id, request.EducationClassId, cancellationToken);
         return student is null
             ? Results.NotFound()
@@ -576,6 +588,7 @@ app.MapPost("/api/registrations", async (RegistrationRequest request, Registrati
     logger.LogInformation("Received registration request: {Request}", System.Text.Json.JsonSerializer.Serialize(request));
     try
     {
+        // Aplica hash na senha, persiste o registro e devolve o DTO ao cliente.
         var created = await service.CreateAsync(request, cancellationToken);
         return Results.Created($"/api/registrations/{created.Id}", RegistrationResponse.FromEntity(created));
     }
@@ -626,7 +639,7 @@ app.MapDelete("/api/registrations/{id:long}", async Task<IResult> (long id, Canc
         await conn.OpenAsync(cancellationToken);
 
     await using var cmd = conn.CreateCommand();
-    // use the actual table name present in the database
+    // Usa o nome real da tabela existente no banco de dados.
     cmd.CommandText = "DELETE FROM person_registrations WHERE id = @id";
         cmd.Parameters.AddWithValue("@id", id);
 
@@ -635,7 +648,7 @@ app.MapDelete("/api/registrations/{id:long}", async Task<IResult> (long id, Canc
     }
     catch (MySqlException ex)
     {
-        // log/return generic bad request for DB issues
+        // Registra e devolve um erro genérico em caso de falha no banco.
         return Results.BadRequest(new { message = ex.Message });
     }
 })
@@ -647,6 +660,7 @@ app.MapDelete("/api/registrations/{id:long}", async Task<IResult> (long id, Canc
 
 app.MapGet("/api/dashboard", async (DashboardService service, CancellationToken cancellationToken) =>
 {
+    // Consolida matrículas por unidade e turma para alimentar o dashboard.
     var summary = await service.GetEnrollmentSummaryAsync(cancellationToken);
     return Results.Ok(summary);
 })
